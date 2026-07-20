@@ -34,6 +34,10 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		$this->load->model('setting/setting');
 
 		if (($this->request->server['REQUEST_METHOD'] == 'POST') && $this->validate()) {
+			// OpenCart 3 connects with set_charset('utf8') — the 3-byte variant.
+			// Emoji are 4-byte, so templates would be stored as "????" unless the
+			// connection is switched for this request before the settings are written.
+			try { $this->db->query("SET NAMES utf8mb4"); } catch (Exception $e) {}
 			$this->model_setting_setting->editSetting('module_cc_telegram', $this->collect());
 			$this->session->data['success'] = $this->language->get('text_success');
 			$this->response->redirect($this->url->link('marketplace/extension', 'user_token=' . $this->session->data['user_token'] . '&type=module', true));

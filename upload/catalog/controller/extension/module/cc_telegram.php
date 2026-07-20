@@ -341,7 +341,27 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 	}
 
 	private function template($which) {
-		$raw = (string)$this->config->get('module_cc_telegram_template_' . $which);
+		$key = 'module_cc_telegram_template_' . $which;
+
+		// OpenCart 3 connects with set_charset('utf8'), the 3-byte variant, so the
+		// settings loaded at bootstrap have already lost every emoji ("🔄" arrives
+		// as "?"). Re-read this one row over a utf8mb4 connection, then switch back
+		// so nothing else in the request sees a changed charset.
+		$raw = '';
+		try {
+			$this->db->query("SET NAMES utf8mb4");
+			$row = $this->db->query("SELECT `value` FROM `" . DB_PREFIX . "setting` WHERE `key` = '" . $this->db->escape($key) . "' LIMIT 1");
+			if ($row->num_rows) {
+				$raw = (string)$row->row['value'];
+			}
+			$this->db->query("SET NAMES utf8");
+		} catch (Exception $e) {
+			$raw = '';
+		}
+
+		if (trim($raw) === '') {
+			$raw = (string)$this->config->get($key);
+		}
 
 		return trim($raw) === '' ? CcTelegramFormatter::defaultTemplate($which) : $raw;
 	}

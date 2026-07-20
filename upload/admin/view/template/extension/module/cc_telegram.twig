@@ -1,0 +1,259 @@
+{{ header }}{{ column_left }}
+<div id="content">
+  <div class="page-header">
+    <div class="container-fluid">
+      <div class="pull-right">
+        <button type="submit" form="form-cc-telegram" data-toggle="tooltip" title="{{ button_save }}" class="btn btn-primary"><i class="fa fa-save"></i></button>
+        <a href="{{ cancel }}" data-toggle="tooltip" title="{{ button_cancel }}" class="btn btn-default"><i class="fa fa-reply"></i></a>
+      </div>
+      <h1>{{ heading_title }}</h1>
+      <ul class="breadcrumb">
+        {% for breadcrumb in breadcrumbs %}<li><a href="{{ breadcrumb.href }}">{{ breadcrumb.text }}</a></li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div class="container-fluid">
+    {% if error_warning %}<div class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> {{ error_warning }}</div>{% endif %}
+    <div id="cctg-alert"></div>
+
+    <ul class="nav nav-tabs">
+      <li class="active"><a href="#tab-settings" data-toggle="tab">{{ tab_settings }}</a></li>
+      <li><a href="#tab-log" data-toggle="tab">{{ tab_log }}</a></li>
+    </ul>
+
+    <div class="tab-content">
+
+      <div class="tab-pane active" id="tab-settings">
+        <form action="{{ action }}" method="post" enctype="multipart/form-data" id="form-cc-telegram" class="form-horizontal">
+
+          <div class="panel panel-default">
+            <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-plug"></i> {{ text_connection }}</h3></div>
+            <div class="panel-body">
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_status }}</label>
+                <div class="col-sm-9">
+                  <select name="module_cc_telegram_status" class="form-control">
+                    <option value="1"{% if module_cc_telegram_status %} selected{% endif %}>{{ text_enabled }}</option>
+                    <option value="0"{% if not module_cc_telegram_status %} selected{% endif %}>{{ text_disabled }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label" for="cctg-token">{{ entry_token }}</label>
+                <div class="col-sm-9">
+                  <input type="password" name="module_cc_telegram_bot_token" value="" id="cctg-token" autocomplete="new-password" placeholder="{% if has_token %}{{ text_token_saved }}{% else %}123456789:AA...{% endif %}" class="form-control"/>
+                  <div class="text-muted">{{ help_token }}{% if has_token %} <span class="text-success">{{ text_token_stored }}</span>{% endif %}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label" for="cctg-chats">{{ entry_chats }}</label>
+                <div class="col-sm-9">
+                  <textarea name="module_cc_telegram_chat_ids" rows="4" id="cctg-chats" placeholder="123456789&#10;-1001234567890:42" class="form-control">{{ module_cc_telegram_chat_ids }}</textarea>
+                  <div class="text-muted">{{ help_chats }}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_admin_url }}</label>
+                <div class="col-sm-9">
+                  <input type="text" name="module_cc_telegram_admin_url" value="{{ module_cc_telegram_admin_url }}" class="form-control"/>
+                  <div class="text-muted">{{ help_admin_url }}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_silent }}</label>
+                <div class="col-sm-9">
+                  <select name="module_cc_telegram_silent" class="form-control">
+                    <option value="0"{% if not module_cc_telegram_silent %} selected{% endif %}>{{ text_disabled }}</option>
+                    <option value="1"{% if module_cc_telegram_silent %} selected{% endif %}>{{ text_enabled }}</option>
+                  </select>
+                  <div class="text-muted">{{ help_silent }}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">&nbsp;</label>
+                <div class="col-sm-9">
+                  <button type="button" id="cctg-test" class="btn btn-success"><i class="fa fa-paper-plane"></i> {{ button_test }}</button>
+                  <button type="button" id="cctg-find" class="btn btn-default"><i class="fa fa-search"></i> {{ button_find }}</button>
+                  <div class="text-muted" style="margin-top:6px">{{ help_tools }}</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="panel panel-default">
+            <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-bell"></i> {{ text_events }}</h3></div>
+            <div class="panel-body">
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_notify_new_order }}</label>
+                <div class="col-sm-9">
+                  <select name="module_cc_telegram_notify_new_order" class="form-control">
+                    <option value="1"{% if module_cc_telegram_notify_new_order %} selected{% endif %}>{{ text_enabled }}</option>
+                    <option value="0"{% if not module_cc_telegram_notify_new_order %} selected{% endif %}>{{ text_disabled }}</option>
+                  </select>
+                  <div class="well well-sm" style="margin-top:8px;margin-bottom:4px">
+                    {% for order_status in order_statuses %}
+                      <label class="checkbox-inline">
+                        <input type="checkbox" name="module_cc_telegram_new_order_statuses[]" value="{{ order_status.order_status_id }}"{% if order_status.order_status_id in new_order_statuses %} checked{% endif %}/> {{ order_status.name }}
+                      </label>
+                    {% endfor %}
+                  </div>
+                  <div class="text-muted">{{ help_new_order }}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_notify_status }}</label>
+                <div class="col-sm-9">
+                  <select name="module_cc_telegram_notify_status" class="form-control">
+                    <option value="1"{% if module_cc_telegram_notify_status %} selected{% endif %}>{{ text_enabled }}</option>
+                    <option value="0"{% if not module_cc_telegram_notify_status %} selected{% endif %}>{{ text_disabled }}</option>
+                  </select>
+                  <div class="well well-sm" style="margin-top:8px;margin-bottom:4px">
+                    {% for order_status in order_statuses %}
+                      <label class="checkbox-inline">
+                        <input type="checkbox" name="module_cc_telegram_status_statuses[]" value="{{ order_status.order_status_id }}"{% if order_status.order_status_id in status_statuses %} checked{% endif %}/> {{ order_status.name }}
+                      </label>
+                    {% endfor %}
+                  </div>
+                  <div class="text-muted">{{ help_status }}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_notify_low_stock }}</label>
+                <div class="col-sm-9">
+                  <select name="module_cc_telegram_notify_low_stock" class="form-control">
+                    <option value="1"{% if module_cc_telegram_notify_low_stock %} selected{% endif %}>{{ text_enabled }}</option>
+                    <option value="0"{% if not module_cc_telegram_notify_low_stock %} selected{% endif %}>{{ text_disabled }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_low_stock_qty }}</label>
+                <div class="col-sm-9">
+                  <input type="number" min="0" name="module_cc_telegram_low_stock_qty" value="{{ module_cc_telegram_low_stock_qty }}" class="form-control"/>
+                  <div class="text-muted">{{ help_low_stock_qty }}</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="panel panel-default">
+            <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-file-text-o"></i> {{ text_templates }}</h3></div>
+            <div class="panel-body">
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_template_new_order }}</label>
+                <div class="col-sm-9"><textarea name="module_cc_telegram_template_new_order" rows="10" class="form-control">{{ module_cc_telegram_template_new_order }}</textarea></div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_template_status }}</label>
+                <div class="col-sm-9"><textarea name="module_cc_telegram_template_status" rows="6" class="form-control">{{ module_cc_telegram_template_status }}</textarea></div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_template_low_stock }}</label>
+                <div class="col-sm-9"><textarea name="module_cc_telegram_template_low_stock" rows="6" class="form-control">{{ module_cc_telegram_template_low_stock }}</textarea></div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ text_tags }}</label>
+                <div class="col-sm-9">
+                  <p>{% for p in placeholders %}<code title="{{ p.text }}" style="margin-right:4px;cursor:help">&#123;{{ p.tag }}&#125;</code>{% endfor %}</p>
+                  <div class="text-muted">{{ help_tags }}</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </form>
+      </div>
+
+      <div class="tab-pane" id="tab-log">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <div class="pull-right"><a href="{{ clear_url }}" class="btn btn-danger btn-xs"><i class="fa fa-trash-o"></i> {{ button_clear_log }}</a></div>
+            <h3 class="panel-title"><i class="fa fa-list"></i> {{ text_log }}</h3>
+          </div>
+          <div class="panel-body">
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover">
+                <thead>
+                  <tr>
+                    <td>{{ column_date }}</td>
+                    <td>{{ column_order }}</td>
+                    <td>{{ column_event }}</td>
+                    <td>{{ column_chat }}</td>
+                    <td>HTTP</td>
+                    <td>{{ column_result }}</td>
+                    <td>{{ column_message }}</td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% if not logs %}<tr><td colspan="7" class="text-center">{{ text_no_results }}</td></tr>{% endif %}
+                  {% for l in logs %}
+                    <tr>
+                      <td>{{ l.date_added }}</td>
+                      <td>{% if l.order_id %}<a href="{{ l.href }}">#{{ l.order_id }}</a>{% else %}&mdash;{% endif %}</td>
+                      <td>{{ l.event }}</td>
+                      <td><code>{{ l.chat_id }}</code></td>
+                      <td>{{ l.http }}</td>
+                      <td>{% if l.success %}<span class="text-success"><b>OK</b></span>{% else %}<span class="text-danger"><b>{{ text_error }}</b></span>{% endif %}</td>
+                      <td><small>{{ l.message }}</small></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script type="text/javascript">
+// |raw — Twig would escape "&" in the URL to "&amp;", which breaks the query string.
+var cctgTestUrl = '{{ test_url|raw }}';
+var cctgFindUrl = '{{ find_url|raw }}';
+
+function cctgAlert(json) {
+  var box = $('#cctg-alert');
+  box.empty();
+  if (json.error) { box.prepend('<div class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> ' + json.error + '</div>'); }
+  if (json.success) { box.prepend('<div class="alert alert-success"><i class="fa fa-check-circle"></i> ' + json.success + '</div>'); }
+}
+
+function cctgPost(url, button) {
+  var original = button.html();
+  button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+  $.ajax({
+    url: url,
+    type: 'post',
+    dataType: 'json',
+    data: {
+      bot_token: $('#cctg-token').val(),
+      chat_ids: $('#cctg-chats').val()
+    },
+    success: function (json) { cctgAlert(json); },
+    error: function (xhr) { cctgAlert({ error: xhr.status + ' ' + xhr.statusText }); },
+    complete: function () { button.prop('disabled', false).html(original); }
+  });
+}
+
+$('#cctg-test').on('click', function () { cctgPost(cctgTestUrl, $(this)); });
+$('#cctg-find').on('click', function () { cctgPost(cctgFindUrl, $(this)); });
+</script>
+{{ footer }}

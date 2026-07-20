@@ -1,0 +1,7 @@
+{
+  "name": "Telegram Order Notifications for OpenCart",
+  "description": "Instant Telegram notifications about OpenCart 4.x orders — new order, order status change and low stock, delivered to any chat, group, channel or forum topic. Customisable HTML message templates with placeholders, multiple targets, silent delivery, encrypted bot token, built-in \"send test message\" and \"find chat_id\" helpers, delivery journal and a retry cron.",
+  "version": "1.0.0",
+  "author": "CatCode",
+  "link": "https://catcode.com.ua/opencart/telegram-order-notifications"
+}

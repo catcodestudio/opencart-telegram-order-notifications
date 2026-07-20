@@ -1,0 +1,38 @@
+<div class="card">
+  <div class="card-header"><i class="fa-solid fa-list"></i> {{ text_log }}</div>
+  <div class="card-body p-0">
+    {% if rows %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead>
+          <tr>
+            <th>{{ column_date }}</th>
+            <th>{{ column_event }}</th>
+            <th>{{ column_order }}</th>
+            <th>{{ column_chat }}</th>
+            <th class="text-end">{{ column_status }}</th>
+            <th>{{ column_result }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td><small>{{ r.created_at }}</small></td>
+            <td><span class="badge bg-secondary">{{ r.event }}</span></td>
+            <td>{{ r.order_id > 0 ? r.order_id : (r.product_id > 0 ? '#' ~ r.product_id : '—') }}</td>
+            <td><code>{{ r.chat_id }}</code></td>
+            <td class="text-end">{{ r.http_status }}</td>
+            <td>
+              {% if r.success == '1' %}<span class="text-success"><i class="fa-solid fa-check"></i> {{ r.message }}</span>
+              {% else %}<small class="text-danger">{{ r.message }}</small>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-3 text-muted">{{ text_empty }}</div>
+    {% endif %}
+  </div>
+</div>

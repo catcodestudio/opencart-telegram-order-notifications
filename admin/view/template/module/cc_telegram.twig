@@ -1,0 +1,250 @@
+{{ header }}{{ column_left }}
+<div id="content">
+  <div class="page-header">
+    <div class="container-fluid">
+      <div class="float-end">
+        <button type="submit" form="form-cctg" data-bs-toggle="tooltip" title="{{ button_save }}" class="btn btn-primary"><i class="fa-solid fa-save"></i></button>
+        <a href="{{ back }}" class="btn btn-light"><i class="fa-solid fa-reply"></i></a>
+      </div>
+      <h1>{{ heading_title }}</h1>
+      <ol class="breadcrumb">
+        {% for breadcrumb in breadcrumbs %}
+        <li class="breadcrumb-item"><a href="{{ breadcrumb.href }}">{{ breadcrumb.text }}</a></li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+
+  <div class="container-fluid">
+    <div id="alert-cctg"></div>
+    <p class="text-muted">{{ text_lead }}</p>
+
+    <ul class="nav nav-tabs mb-3" id="cctg-tabs">
+      <li class="nav-item"><a href="#tab-settings" data-bs-toggle="tab" class="nav-link active">{{ text_settings_tab }}</a></li>
+      <li class="nav-item"><a href="#tab-log" data-bs-toggle="tab" class="nav-link" id="tab-log-link">{{ text_log_tab }}</a></li>
+    </ul>
+
+    <div class="tab-content">
+      <div class="tab-pane active" id="tab-settings">
+        <div class="card">
+          <div class="card-header"><i class="fa-solid fa-pencil"></i> {{ text_edit }}</div>
+          <div class="card-body">
+            <form id="form-cctg" action="{{ save }}" method="post">
+
+              <fieldset>
+                <legend>{{ text_connection }}</legend>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_status }}</label>
+                  <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+                    <input type="hidden" name="module_cc_telegram_status" value="0"/>
+                    <input type="checkbox" name="module_cc_telegram_status" value="1" class="form-check-input"{{ status == '1' ? ' checked' : '' }}/>
+                  </div></div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label" for="cctg-token">{{ entry_bot_token }}</label>
+                  <div class="col-sm-9">
+                    <input type="password" id="cctg-token" name="module_cc_telegram_bot_token" value="" class="form-control" autocomplete="new-password" placeholder="{{ bot_token_set ? text_secret_set : '123456789:AA...' }}"/>
+                    <div class="form-text">{{ help_bot_token }}{% if bot_token_set %} <span class="text-success">{{ text_token_saved }}</span>{% endif %}</div>
+                  </div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label" for="cctg-chats">{{ entry_chat_ids }}</label>
+                  <div class="col-sm-9">
+                    <textarea id="cctg-chats" name="module_cc_telegram_chat_ids" rows="4" class="form-control" placeholder="123456789&#10;-1001234567890:42">{{ chat_ids }}</textarea>
+                    <div class="form-text">{{ help_chat_ids }}</div>
+                  </div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_silent }}</label>
+                  <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+                    <input type="hidden" name="module_cc_telegram_silent" value="0"/>
+                    <input type="checkbox" name="module_cc_telegram_silent" value="1" class="form-check-input"{{ silent == '1' ? ' checked' : '' }}/>
+                  </div>
+                  <div class="form-text">{{ help_silent }}</div></div>
+                </div>
+
+                <div class="row mb-3">
+                  <div class="col-sm-9 offset-sm-3">
+                    <button type="button" id="btn-test" class="btn btn-outline-primary"><i class="fa-solid fa-paper-plane"></i> {{ button_test }}</button>
+                    <button type="button" id="btn-discover" class="btn btn-outline-secondary"><i class="fa-solid fa-magnifying-glass"></i> {{ button_discover }}</button>
+                    <div id="cctg-result" class="mt-2"></div>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend>{{ text_events }}</legend>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_notify_new_order }}</label>
+                  <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+                    <input type="hidden" name="module_cc_telegram_notify_new_order" value="0"/>
+                    <input type="checkbox" name="module_cc_telegram_notify_new_order" value="1" class="form-check-input"{{ notify_new_order == '1' ? ' checked' : '' }}/>
+                  </div>
+                  <div class="form-text">{{ help_notify_new_order }}</div></div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_new_order_statuses }}</label>
+                  <div class="col-sm-9">
+                    <div class="border rounded p-2" style="max-height:220px;overflow:auto">
+                      {% for s in order_statuses %}
+                      <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="cctg-new-{{ s.order_status_id }}" name="module_cc_telegram_new_order_statuses[]" value="{{ s.order_status_id }}"{{ s.order_status_id in new_order_selected ? ' checked' : '' }}/>
+                        <label class="form-check-label" for="cctg-new-{{ s.order_status_id }}">{{ s.name }}</label>
+                      </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_notify_status }}</label>
+                  <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+                    <input type="hidden" name="module_cc_telegram_notify_status" value="0"/>
+                    <input type="checkbox" name="module_cc_telegram_notify_status" value="1" class="form-check-input"{{ notify_status == '1' ? ' checked' : '' }}/>
+                  </div>
+                  <div class="form-text">{{ help_notify_status }}</div></div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_status_statuses }}</label>
+                  <div class="col-sm-9">
+                    <div class="border rounded p-2" style="max-height:220px;overflow:auto">
+                      {% for s in order_statuses %}
+                      <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="cctg-st-{{ s.order_status_id }}" name="module_cc_telegram_status_statuses[]" value="{{ s.order_status_id }}"{{ s.order_status_id in status_selected ? ' checked' : '' }}/>
+                        <label class="form-check-label" for="cctg-st-{{ s.order_status_id }}">{{ s.name }}</label>
+                      </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_notify_low_stock }}</label>
+                  <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+                    <input type="hidden" name="module_cc_telegram_notify_low_stock" value="0"/>
+                    <input type="checkbox" name="module_cc_telegram_notify_low_stock" value="1" class="form-check-input"{{ notify_low_stock == '1' ? ' checked' : '' }}/>
+                  </div>
+                  <div class="form-text">{{ help_notify_low_stock }}</div></div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_low_stock_threshold }}</label>
+                  <div class="col-sm-9">
+                    <input type="number" min="0" max="10000" name="module_cc_telegram_low_stock_threshold" value="{{ low_stock_threshold }}" class="form-control" style="max-width:120px"/>
+                    <div class="form-text">{{ help_low_stock_threshold }}</div>
+                  </div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_retry }}</label>
+                  <div class="col-sm-9"><div class="form-check form-switch form-switch-lg">
+                    <input type="hidden" name="module_cc_telegram_retry_enabled" value="0"/>
+                    <input type="checkbox" name="module_cc_telegram_retry_enabled" value="1" class="form-check-input"{{ retry_enabled == '1' ? ' checked' : '' }}/>
+                  </div>
+                  <div class="form-text">{{ help_retry }}</div></div>
+                </div>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_max_attempts }}</label>
+                  <div class="col-sm-9"><input type="number" min="1" max="20" name="module_cc_telegram_max_attempts" value="{{ max_attempts }}" class="form-control" style="max-width:120px"/></div>
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend>{{ text_templates }}</legend>
+
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_template_new_order }}</label>
+                  <div class="col-sm-9"><textarea name="module_cc_telegram_template_new_order" rows="10" class="form-control font-monospace">{{ template_new_order }}</textarea></div>
+                </div>
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_template_status }}</label>
+                  <div class="col-sm-9"><textarea name="module_cc_telegram_template_status" rows="5" class="form-control font-monospace">{{ template_status }}</textarea></div>
+                </div>
+                <div class="row mb-3">
+                  <label class="col-sm-3 col-form-label">{{ entry_template_low_stock }}</label>
+                  <div class="col-sm-9"><textarea name="module_cc_telegram_template_low_stock" rows="5" class="form-control font-monospace">{{ template_low_stock }}</textarea></div>
+                </div>
+
+                <div class="row">
+                  <div class="col-sm-9 offset-sm-3">
+                    <div class="form-text mb-2">{{ help_templates }}</div>
+                    <div class="form-text">{{ text_placeholders }}</div>
+                    <div>
+                      {% for p in placeholders %}
+                      <span class="badge bg-light text-dark border me-1 mb-1" title="{{ p.label }}"><code>{{ p.tag }}</code></span>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+              </fieldset>
+
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-log"><div id="log-panel"></div></div>
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript">
+// Twig html-escapes controller URLs (& -> &amp;); harmless in an href but it
+// breaks fetch() targets — the user_token is lost and OpenCart answers with the
+// login page instead of JSON.
+function ccTgUrl(s) { return s.replace(/&amp;/g, '&'); }
+
+function ccTgAlert(html) {
+  document.getElementById('alert-cctg').innerHTML = html;
+  window.scrollTo(0, 0);
+}
+
+document.getElementById('form-cctg').addEventListener('submit', function (e) {
+  e.preventDefault();
+  fetch(ccTgUrl('{{ save }}'), { method: 'POST', body: new FormData(this) })
+    .then(function (r) { return r.json(); })
+    .then(function (json) {
+      if (json.error) { ccTgAlert('<div class="alert alert-danger">' + json.error + '</div>'); }
+      else if (json.success) { ccTgAlert('<div class="alert alert-success">' + json.success + '</div>'); }
+    });
+});
+
+function ccTgCredentials() {
+  const fd = new FormData();
+  fd.append('module_cc_telegram_bot_token', document.getElementById('cctg-token').value);
+  fd.append('module_cc_telegram_chat_ids', document.getElementById('cctg-chats').value);
+  return fd;
+}
+
+function ccTgCall(url, btn) {
+  const out = document.getElementById('cctg-result');
+  out.innerHTML = '<span class="text-muted">…</span>';
+  btn.disabled = true;
+  fetch(ccTgUrl(url), { method: 'POST', body: ccTgCredentials() })
+    .then(function (r) { return r.json(); })
+    .then(function (json) {
+      if (json.ok) { out.innerHTML = '<div class="alert alert-success mb-0">' + json.message + '</div>'; }
+      else { out.innerHTML = '<div class="alert alert-danger mb-0">' + (json.error || 'Error') + '</div>'; }
+    })
+    .catch(function () { out.innerHTML = '<div class="alert alert-danger mb-0">Request failed</div>'; })
+    .finally(function () { btn.disabled = false; });
+}
+
+document.getElementById('btn-test').addEventListener('click', function () { ccTgCall('{{ test }}', this); });
+document.getElementById('btn-discover').addEventListener('click', function () { ccTgCall('{{ discover }}', this); });
+
+document.getElementById('tab-log-link').addEventListener('click', function () {
+  const panel = document.getElementById('log-panel');
+  panel.innerHTML = '<div class="text-muted p-3">…</div>';
+  fetch(ccTgUrl('{{ log }}')).then(function (r) { return r.text(); }).then(function (html) { panel.innerHTML = html; });
+});
+</script>
+{{ footer }}

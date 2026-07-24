@@ -311,7 +311,7 @@ class CcTelegram extends \Opencart\System\Engine\Controller {
 		$this->model_setting_event->addEvent([
 			'code'        => 'cc_telegram_order_history',
 			'description' => 'CatCode Telegram Notifications — new order / order status change',
-			'trigger'     => 'catalog/model/checkout/order.addHistory/after',
+			'trigger'     => 'catalog/model/checkout/order*addHistory/after',
 			'action'      => 'extension/cc_telegram/events.orderHistoryAdded',
 			'status'      => 1,
 			'sort_order'  => 20,
@@ -321,7 +321,7 @@ class CcTelegram extends \Opencart\System\Engine\Controller {
 		$this->model_setting_event->addEvent([
 			'code'        => 'cc_telegram_low_stock',
 			'description' => 'CatCode Telegram Notifications — low stock warning after stock subtraction',
-			'trigger'     => 'catalog/model/checkout/order.addHistory/after',
+			'trigger'     => 'catalog/model/checkout/order*addHistory/after',
 			'action'      => 'extension/cc_telegram/events.lowStock',
 			'status'      => 1,
 			'sort_order'  => 30,

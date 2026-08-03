@@ -1,5 +1,6 @@
 <?php
 namespace Opencart\Admin\Controller\Extension\CcTelegram\Module;
+require_once __DIR__ . '/polyfill.php';
 
 require_once DIR_EXTENSION . 'cc_telegram/system/library/cc_telegram/crypto.php';
 require_once DIR_EXTENSION . 'cc_telegram/system/library/cc_telegram/settings.php';

@@ -1,5 +1,6 @@
 <?php
 namespace Opencart\System\Library\CcTelegram;
+require_once __DIR__ . '/polyfill.php';
 
 /**
  * At-rest encryption for the stored Telegram bot token. Uses

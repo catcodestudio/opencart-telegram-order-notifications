@@ -443,18 +443,44 @@ class CcTelegramLogger {
 	 * @return int Inserted log_id, so the retry cron can resolve this very row.
 	 */
 	public function log($order_id, $event, $chat_id, $http, $message, $success, $product_id = 0) {
+		// The stored message can carry 4-byte characters — Telegram echoes order
+		// data back in its error text. On the 3-byte utf8 connection those would
+		// land as "?", so widen it for this insert and hand it back afterwards.
+		$widened = false;
+		try {
+			$this->db->query("SET NAMES utf8mb4");
+			$widened = true;
+		} catch (Exception $e) {
+			// Stay on the connection charset we were given.
+		}
+
+		// substr() on a 3-byte boundary would leave half a character behind.
+		$message = function_exists('mb_substr')
+			? mb_substr((string)$message, 0, 2000)
+			: substr((string)$message, 0, 2000);
+
 		$this->db->query("INSERT INTO `" . self::table() . "` SET
 			`order_id` = '" . (int)$order_id . "',
 			`product_id` = '" . (int)$product_id . "',
 			`event` = '" . $this->db->escape(substr((string)$event, 0, 32)) . "',
 			`chat_id` = '" . $this->db->escape(substr((string)$chat_id, 0, 64)) . "',
 			`http_status` = '" . (int)$http . "',
-			`message` = '" . $this->db->escape(substr((string)$message, 0, 2000)) . "',
+			`message` = '" . $this->db->escape($message) . "',
 			`success` = '" . ($success ? 1 : 0) . "',
 			`attempts` = '1',
 			`date_added` = NOW()");
 
-		return (int)$this->db->getLastId();
+		$id = (int)$this->db->getLastId();
+
+		if ($widened) {
+			try {
+				$this->db->query("SET NAMES utf8");
+			} catch (Exception $e) {
+				// Nothing sensible left to do.
+			}
+		}
+
+		return $id;
 	}
 
 	/**

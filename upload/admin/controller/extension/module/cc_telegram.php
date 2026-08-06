@@ -389,6 +389,18 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 	// ---------------------------------------------------------------- lifecycle
 
 	public function install() {
+		// Grant this route to the installing user's group — OpenCart 3 does not do
+		// it automatically, so without this the settings page answers
+		// "Permission Denied" until the admin edits User Groups by hand.
+		$this->load->model('user/user_group');
+		foreach (array('access', 'modify') as $type) {
+			try {
+				$this->model_user_user_group->addPermission((int)$this->user->getGroupId(), $type, $this->route);
+			} catch (Exception $e) {
+				// Permissions can also be granted from System → Users → Groups.
+			}
+		}
+
 		$this->db->query("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "cc_telegram_log` (
 			`log_id` int(11) NOT NULL AUTO_INCREMENT,
 			`order_id` int(11) NOT NULL DEFAULT '0',

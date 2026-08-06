@@ -145,6 +145,26 @@
                 </div>
               </div>
 
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_retry }}</label>
+                <div class="col-sm-9">
+                  <select name="module_cc_telegram_retry_enabled" class="form-control">
+                    <option value="1"{% if module_cc_telegram_retry_enabled %} selected{% endif %}>{{ text_enabled }}</option>
+                    <option value="0"{% if not module_cc_telegram_retry_enabled %} selected{% endif %}>{{ text_disabled }}</option>
+                  </select>
+                  <div class="text-muted">{{ help_retry }}</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-3 control-label">{{ entry_max_attempts }}</label>
+                <div class="col-sm-9">
+                  <input type="number" min="1" max="10" name="module_cc_telegram_max_attempts" value="{{ module_cc_telegram_max_attempts }}" class="form-control"/>
+                  <div class="text-muted">{{ help_max_attempts }}</div>
+                  <div class="text-muted" style="margin-top:6px">{{ help_cron }} <code>{{ cron_url }}</code></div>
+                </div>
+              </div>
+
             </div>
           </div>
 
@@ -198,11 +218,12 @@
                     <td>{{ column_chat }}</td>
                     <td>HTTP</td>
                     <td>{{ column_result }}</td>
+                    <td>{{ column_attempts }}</td>
                     <td>{{ column_message }}</td>
                   </tr>
                 </thead>
                 <tbody>
-                  {% if not logs %}<tr><td colspan="7" class="text-center">{{ text_no_results }}</td></tr>{% endif %}
+                  {% if not logs %}<tr><td colspan="8" class="text-center">{{ text_no_results }}</td></tr>{% endif %}
                   {% for l in logs %}
                     <tr>
                       <td>{{ l.date_added }}</td>
@@ -211,6 +232,7 @@
                       <td><code>{{ l.chat_id }}</code></td>
                       <td>{{ l.http }}</td>
                       <td>{% if l.success %}<span class="text-success"><b>OK</b></span>{% else %}<span class="text-danger"><b>{{ text_error }}</b></span>{% endif %}</td>
+                      <td>{{ l.attempts }}</td>
                       <td><small>{{ l.message }}</small></td>
                     </tr>
                   {% endfor %}

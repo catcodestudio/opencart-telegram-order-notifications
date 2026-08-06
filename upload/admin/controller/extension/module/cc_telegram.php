@@ -22,6 +22,8 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		'module_cc_telegram_notify_status',
 		'module_cc_telegram_notify_low_stock',
 		'module_cc_telegram_low_stock_qty',
+		'module_cc_telegram_retry_enabled',
+		'module_cc_telegram_max_attempts',
 		'module_cc_telegram_admin_url',
 		'module_cc_telegram_template_new_order',
 		'module_cc_telegram_template_status',
@@ -70,9 +72,25 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		if ($data['module_cc_telegram_admin_url'] === null || $data['module_cc_telegram_admin_url'] === '') {
 			$data['module_cc_telegram_admin_url'] = HTTP_CATALOG . 'admin/';
 		}
+		// Retry defaults to on: the failure it covers (a blip at api.telegram.org)
+		// is exactly the one a shop owner never finds out about otherwise.
+		if ($this->config->get('module_cc_telegram_max_attempts') === null && !isset($this->request->post['module_cc_telegram_max_attempts'])) {
+			$data['module_cc_telegram_retry_enabled'] = 1;
+			$data['module_cc_telegram_max_attempts']  = 3;
+		}
+		if ((int)$data['module_cc_telegram_max_attempts'] < 1) {
+			$data['module_cc_telegram_max_attempts'] = 3;
+		}
+
+		$data['cron_url'] = (defined('HTTP_CATALOG') ? HTTP_CATALOG : '') . 'index.php?route=extension/module/cc_telegram/retry';
+
+		// Not $this->config: the bootstrap read has already turned every 4-byte
+		// emoji into "?", and the form would then persist that on the next save.
 		foreach (array('new_order', 'status', 'low_stock') as $which) {
 			$key = 'module_cc_telegram_template_' . $which;
-			if ($data[$key] === null || trim((string)$data[$key]) === '') {
+			if (!isset($this->request->post[$key])) {
+				$data[$key] = CcTelegramSettings::template($this->db, $this->config, $which);
+			} elseif (trim((string)$data[$key]) === '') {
 				$data[$key] = CcTelegramFormatter::defaultTemplate($which);
 			}
 		}
@@ -120,6 +138,7 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		}
 
 		$out['module_cc_telegram_low_stock_qty'] = (int)$out['module_cc_telegram_low_stock_qty'];
+		$out['module_cc_telegram_max_attempts']  = max(1, min(10, (int)$out['module_cc_telegram_max_attempts']));
 		$out['module_cc_telegram_admin_url']     = trim((string)$out['module_cc_telegram_admin_url']);
 		$out['module_cc_telegram_chat_ids']      = trim((string)$out['module_cc_telegram_chat_ids']);
 
@@ -301,7 +320,11 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		}
 
 		$logger = new CcTelegramLogger($this->db);
-		$out    = array();
+		// Upgrading in place re-uploads the files but never re-runs install(), so
+		// this is the one moment an older table is guaranteed to be seen.
+		$logger->ensureColumns();
+
+		$out = array();
 
 		foreach ($logger->latest(100) as $r) {
 			$order_id = (int)$r['order_id'];
@@ -315,6 +338,7 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 				'chat_id'    => $r['chat_id'],
 				'http'       => $r['http_status'],
 				'success'    => (bool)$r['success'],
+				'attempts'   => isset($r['attempts']) ? (int)$r['attempts'] : 1,
 				'message'    => mb_substr((string)$r['message'], 0, 200),
 			);
 		}
@@ -368,16 +392,23 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		$this->db->query("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "cc_telegram_log` (
 			`log_id` int(11) NOT NULL AUTO_INCREMENT,
 			`order_id` int(11) NOT NULL DEFAULT '0',
+			`product_id` int(11) NOT NULL DEFAULT '0',
 			`event` varchar(32) NOT NULL DEFAULT '',
 			`chat_id` varchar(64) NOT NULL DEFAULT '',
 			`http_status` smallint(6) NOT NULL DEFAULT '0',
 			`message` text,
 			`success` tinyint(1) NOT NULL DEFAULT '0',
+			`attempts` smallint(6) NOT NULL DEFAULT '1',
 			`date_added` datetime DEFAULT NULL,
 			PRIMARY KEY (`log_id`),
 			KEY `order_id` (`order_id`),
+			KEY `product_id` (`product_id`),
 			KEY `event` (`event`)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
+
+		// A 1.0.0 table survived the CREATE above untouched — bring it forward.
+		$logger = new CcTelegramLogger($this->db);
+		$logger->ensureColumns();
 
 		// OC3 addEvent() takes positional arguments (code, trigger, action) —
 		// the array form is OpenCart 4 only.
@@ -386,12 +417,50 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		$this->model_setting_event->deleteEventByCode('cc_telegram_after');
 		$this->model_setting_event->addEvent('cc_telegram_before', 'catalog/model/checkout/order/addOrderHistory/before', 'extension/module/cc_telegram/eventOrderHistoryBefore');
 		$this->model_setting_event->addEvent('cc_telegram_after', 'catalog/model/checkout/order/addOrderHistory/after', 'extension/module/cc_telegram/eventOrderHistoryAfter');
+
+		$this->registerCron();
 	}
 
 	public function uninstall() {
 		$this->load->model('setting/event');
 		$this->model_setting_event->deleteEventByCode('cc_telegram_before');
 		$this->model_setting_event->deleteEventByCode('cc_telegram_after');
+
+		if ($this->cronTableExists()) {
+			$this->db->query("DELETE FROM `" . DB_PREFIX . "cron` WHERE `code` = 'cc_telegram_retry'");
+		}
 		// The log table and settings survive uninstall (data safety).
+	}
+
+	private function cronTableExists() {
+		try {
+			return $this->db->query("SHOW TABLES LIKE '" . DB_PREFIX . "cron'")->num_rows > 0;
+		} catch (Exception $e) {
+			return false;
+		}
+	}
+
+	/**
+	 * OpenCart 3 ships an `oc_cron` table only from 3.0.3.x; register there when
+	 * it exists so the merchant does not have to add a system cron. Older builds
+	 * still have the URL printed in the settings screen.
+	 */
+	private function registerCron() {
+		if (!$this->cronTableExists()) {
+			return;
+		}
+
+		try {
+			$this->db->query("DELETE FROM `" . DB_PREFIX . "cron` WHERE `code` = 'cc_telegram_retry'");
+			$this->db->query("INSERT INTO `" . DB_PREFIX . "cron`
+				SET `code` = 'cc_telegram_retry',
+				    `cycle` = 'hour',
+				    `action` = 'extension/module/cc_telegram/retry',
+				    `status` = '1',
+				    `date_added` = NOW(),
+				    `date_modified` = NOW()");
+		} catch (Exception $e) {
+			// Older 3.0.x builds use a different cron schema.
+		}
 	}
 }

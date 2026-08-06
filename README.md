@@ -5,7 +5,7 @@ Sends OpenCart shop events to Telegram — a private chat, a group, a channel or
 - **`main`** — OpenCart 4.x (`cc_telegram.ocmod.zip`)
 - **`opencart-3.x`** — OpenCart 3.0.x (`cc_telegram-oc3.ocmod.zip`)
 
-**Status:** v1.0.0 — both builds tested live (test message + real order status change delivered) on OpenCart 4.1.0.3 and 3.0.5.0.
+**Status:** v1.0.2 — both builds tested live on OpenCart 4.1.0.3 and 3.0.5.0: test message, new order, status change, low stock and the retry cron all delivered.
 
 ## Features
 
@@ -17,7 +17,7 @@ Sends OpenCart shop events to Telegram — a private chat, a group, a channel or
 - A template line whose tags all resolve to empty is dropped, so messages never show dangling labels.
 - **Silent delivery** option (no notification sound).
 - **"Find chat_id"** button — no third-party helper bot needed. Both buttons work before the settings are saved, using the token typed in the form.
-- **Delivery log** with Telegram's HTTP status; failed sends retry via cron (OC4).
+- **Delivery log** with Telegram's HTTP status and the attempt counter; failed order messages are retried on a schedule, up to a limit you set. OpenCart 4 registers the job itself; OpenCart 3 has no scheduler, so the settings screen prints the URL for your hosting cron.
 - Bot token stored encrypted.
 
 ## Install

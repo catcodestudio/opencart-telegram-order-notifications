@@ -2,7 +2,7 @@
 <modification>
   <name>Telegram Order Notifications</name>
   <code>cc_telegram</code>
-  <version>1.0.0</version>
+  <version>1.0.2</version>
   <author>CatCode</author>
-  <link>https://catcode.com.ua/opencart/telegram</link>
+  <link>https://catcode.com.ua/modules/opencart-telegram-notifications/</link>
 </modification>

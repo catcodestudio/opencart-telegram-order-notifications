@@ -156,9 +156,16 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 			WHERE op.order_id = '" . (int)$order_id . "'")->rows;
 
 		$template = $this->template('low_stock');
+		$logger   = new CcTelegramLogger($this->db);
 
 		foreach ($rows as $r) {
 			if (!(int)$r['subtract'] || (int)$r['quantity'] > $threshold) {
+				continue;
+			}
+
+			// A product that stays under the threshold would otherwise generate a
+			// notice per order — one per product per day is enough to act on.
+			if ($logger->lowStockRecently((int)$r['product_id'])) {
 				continue;
 			}
 
@@ -176,7 +183,7 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 				continue;
 			}
 
-			$this->broadcast(0, 'low_stock', $text);
+			$this->broadcast(0, 'low_stock', $text, (int)$r['product_id']);
 		}
 	}
 
@@ -299,7 +306,7 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 
 	// ---------------------------------------------------------------- transport
 
-	private function broadcast($order_id, $event, $text) {
+	private function broadcast($order_id, $event, $text, $product_id = 0) {
 		$token = CcTelegramCrypto::decrypt((string)$this->config->get('module_cc_telegram_bot_token'));
 		$chats = CcTelegramClient::chats($this->config->get('module_cc_telegram_chat_ids'));
 
@@ -327,11 +334,89 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 				$chat['chat_id'],
 				$res['status'],
 				$res['ok'] ? 'OK' : $res['error'],
-				$res['ok']
+				$res['ok'],
+				$product_id
 			);
 		}
 
 		$logger->prune();
+	}
+
+	// -------------------------------------------------------------------- retry
+
+	/**
+	 * Second attempt at deliveries that failed — the usual cause is a blip at
+	 * api.telegram.org or a rate limit.
+	 *
+	 * Registered in the OpenCart cron table as
+	 * `extension/module/cc_telegram/retry`; a system cron can hit the same route
+	 * directly. Lives here rather than in a `_cron` controller so it reuses the
+	 * very same rendering the original send used.
+	 *
+	 * The message is re-rendered from the live order, so a retry reflects
+	 * reality at send time rather than at failure time.
+	 */
+	public function retry() {
+		if (!$this->enabled()) {
+			return;
+		}
+		if ((string)$this->config->get('module_cc_telegram_retry_enabled') !== '1') {
+			return;
+		}
+
+		$token = CcTelegramCrypto::decrypt((string)$this->config->get('module_cc_telegram_bot_token'));
+		if ($token === '') {
+			return;
+		}
+
+		$logger = new CcTelegramLogger($this->db);
+		$rows   = $logger->retryable((int)$this->config->get('module_cc_telegram_max_attempts'));
+		if (!$rows) {
+			return;
+		}
+
+		$this->load->language('extension/module/cc_telegram');
+		$this->load->model('checkout/order');
+
+		$client = new CcTelegramClient($token);
+		$silent = (bool)$this->config->get('module_cc_telegram_silent');
+
+		// The stored chat id carries no topic, so recover the thread from the
+		// configured list — a chat that was removed there is simply skipped.
+		$threads = array();
+		foreach (CcTelegramClient::chats($this->config->get('module_cc_telegram_chat_ids')) as $chat) {
+			$threads[(string)$chat['chat_id']] = (int)$chat['thread_id'];
+		}
+
+		foreach ($rows as $row) {
+			$chat_id = (string)$row['chat_id'];
+			if (!isset($threads[$chat_id])) {
+				continue;
+			}
+
+			$order = $this->model_checkout_order->getOrder((int)$row['order_id']);
+			if (!$order) {
+				continue;
+			}
+
+			$event = (string)$row['event'];
+			$text  = CcTelegramFormatter::render(
+				$this->template($event === 'status' ? 'status' : 'new_order'),
+				$this->orderValues($order, 0)
+			);
+			if (trim($text) === '') {
+				continue;
+			}
+
+			$res = $client->sendMessage($chat_id, $text, $threads[$chat_id], $silent);
+
+			$logger->resolve(
+				(int)$row['log_id'],
+				$res['ok'],
+				$res['status'],
+				$res['ok'] ? 'OK' : $res['error']
+			);
+		}
 	}
 
 	// ----------------------------------------------------------------- settings
@@ -341,29 +426,7 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 	}
 
 	private function template($which) {
-		$key = 'module_cc_telegram_template_' . $which;
-
-		// OpenCart 3 connects with set_charset('utf8'), the 3-byte variant, so the
-		// settings loaded at bootstrap have already lost every emoji ("🔄" arrives
-		// as "?"). Re-read this one row over a utf8mb4 connection, then switch back
-		// so nothing else in the request sees a changed charset.
-		$raw = '';
-		try {
-			$this->db->query("SET NAMES utf8mb4");
-			$row = $this->db->query("SELECT `value` FROM `" . DB_PREFIX . "setting` WHERE `key` = '" . $this->db->escape($key) . "' LIMIT 1");
-			if ($row->num_rows) {
-				$raw = (string)$row->row['value'];
-			}
-			$this->db->query("SET NAMES utf8");
-		} catch (Exception $e) {
-			$raw = '';
-		}
-
-		if (trim($raw) === '') {
-			$raw = (string)$this->config->get($key);
-		}
-
-		return trim($raw) === '' ? CcTelegramFormatter::defaultTemplate($which) : $raw;
+		return CcTelegramSettings::template($this->db, $this->config, $which);
 	}
 
 	/**

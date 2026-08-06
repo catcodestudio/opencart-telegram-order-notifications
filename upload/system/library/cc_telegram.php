@@ -331,6 +331,52 @@ class CcTelegramFormatter {
 }
 
 /**
+ * Reading message templates back out of `setting`.
+ *
+ * OpenCart 3 connects with set_charset('utf8') — the 3-byte variant — so every
+ * value loaded at bootstrap has already lost its 4-byte emoji ("🛒" arrives as
+ * "?"). That matters twice over: the notification would go out mangled, and the
+ * admin form would show "?" and persist it on the next save, destroying the
+ * template for good. Both sides therefore re-read this one row over a utf8mb4
+ * connection and switch back, so nothing else in the request sees a changed
+ * charset.
+ */
+class CcTelegramSettings {
+
+	const PREFIX = 'module_cc_telegram_';
+
+	/**
+	 * @param DB     $db
+	 * @param Config $config Fallback when the direct read finds nothing.
+	 * @param string $which  new_order | status | low_stock
+	 */
+	public static function template($db, $config, $which) {
+		$key = self::PREFIX . 'template_' . $which;
+		$raw = self::raw($db, $key);
+
+		if (trim($raw) === '') {
+			$raw = (string)$config->get($key);
+		}
+
+		return trim($raw) === '' ? CcTelegramFormatter::defaultTemplate($which) : $raw;
+	}
+
+	/** One setting value, read over utf8mb4. Empty string when absent. */
+	public static function raw($db, $key) {
+		try {
+			$db->query("SET NAMES utf8mb4");
+			$row = $db->query("SELECT `value` FROM `" . DB_PREFIX . "setting` WHERE `key` = '" . $db->escape($key) . "' LIMIT 1");
+			$raw = $row->num_rows ? (string)$row->row['value'] : '';
+			$db->query("SET NAMES utf8");
+
+			return $raw;
+		} catch (Exception $e) {
+			return '';
+		}
+	}
+}
+
+/**
  * At-rest obfuscation for the stored bot token (OC3).
  * NOT cryptographic-grade — defense in depth against casual DB-dump leaks.
  */
@@ -392,15 +438,101 @@ class CcTelegramLogger {
 		return DB_PREFIX . 'cc_telegram_log';
 	}
 
-	public function log($order_id, $event, $chat_id, $http, $message, $success) {
+	/**
+	 * @param int $product_id Non-zero only for low-stock rows.
+	 * @return int Inserted log_id, so the retry cron can resolve this very row.
+	 */
+	public function log($order_id, $event, $chat_id, $http, $message, $success, $product_id = 0) {
 		$this->db->query("INSERT INTO `" . self::table() . "` SET
 			`order_id` = '" . (int)$order_id . "',
+			`product_id` = '" . (int)$product_id . "',
 			`event` = '" . $this->db->escape(substr((string)$event, 0, 32)) . "',
 			`chat_id` = '" . $this->db->escape(substr((string)$chat_id, 0, 64)) . "',
 			`http_status` = '" . (int)$http . "',
 			`message` = '" . $this->db->escape(substr((string)$message, 0, 2000)) . "',
 			`success` = '" . ($success ? 1 : 0) . "',
+			`attempts` = '1',
 			`date_added` = NOW()");
+
+		return (int)$this->db->getLastId();
+	}
+
+	/**
+	 * Failed order-bound rows still under the attempt cap.
+	 *
+	 * Only order events are retryable: a low-stock notice re-sent hours later
+	 * would carry a quantity that is no longer true, and the "test" row is a
+	 * one-off the admin can repeat by hand.
+	 *
+	 * @return array<int,array<string,string>>
+	 */
+	public function retryable($max_attempts, $limit = 50) {
+		$max_attempts = max(1, (int)$max_attempts);
+		$limit        = max(1, (int)$limit);
+
+		return $this->db->query("SELECT * FROM `" . self::table() . "`
+			WHERE `success` = '0'
+			AND `order_id` > '0'
+			AND `attempts` < '" . $max_attempts . "'
+			AND `event` IN ('new_order', 'status')
+			ORDER BY `log_id` DESC LIMIT " . $limit)->rows;
+	}
+
+	/** Record the outcome of a retry on the original row instead of adding a new one. */
+	public function resolve($log_id, $success, $http, $message) {
+		$this->db->query("UPDATE `" . self::table() . "` SET
+			`success` = '" . ($success ? 1 : 0) . "',
+			`http_status` = '" . (int)$http . "',
+			`message` = '" . $this->db->escape(substr((string)$message, 0, 2000)) . "',
+			`attempts` = `attempts` + 1
+			WHERE `log_id` = '" . (int)$log_id . "'");
+	}
+
+	/** Throttle low-stock notices to one per product per day. */
+	public function lowStockRecently($product_id, $hours = 24) {
+		$row = $this->db->query("SELECT `log_id` FROM `" . self::table() . "`
+			WHERE `product_id` = '" . (int)$product_id . "'
+			AND `event` = 'low_stock'
+			AND `date_added` > DATE_SUB(NOW(), INTERVAL " . (int)$hours . " HOUR) LIMIT 1");
+
+		return (bool)$row->num_rows;
+	}
+
+	/**
+	 * Bring a 1.0.0 log table up to the current shape. Installs created before
+	 * the retry cron have neither counter nor product column, and OpenCart never
+	 * re-runs install() on an upgrade-in-place.
+	 */
+	public function ensureColumns() {
+		$table = self::table();
+
+		try {
+			$columns = $this->db->query("SHOW COLUMNS FROM `" . $table . "`")->rows;
+		} catch (Exception $e) {
+			return;
+		}
+
+		$have = array();
+		foreach ($columns as $c) {
+			$have[$c['Field']] = true;
+		}
+
+		if (!isset($have['product_id'])) {
+			try {
+				$this->db->query("ALTER TABLE `" . $table . "` ADD `product_id` int(11) NOT NULL DEFAULT '0' AFTER `order_id`");
+				$this->db->query("ALTER TABLE `" . $table . "` ADD KEY `product_id` (`product_id`)");
+			} catch (Exception $e) {
+				// Raced with another request that added it first.
+			}
+		}
+
+		if (!isset($have['attempts'])) {
+			try {
+				$this->db->query("ALTER TABLE `" . $table . "` ADD `attempts` smallint(6) NOT NULL DEFAULT '1' AFTER `success`");
+			} catch (Exception $e) {
+				// Same.
+			}
+		}
 	}
 
 	public function latest($limit = 100) {

@@ -3,6 +3,7 @@
 $_['heading_title']             = 'Telegram Order Notifications';
 
 // Text
+$_['text_home']                 = 'Home';
 $_['text_extension']            = 'Extensions';
 $_['text_success']              = 'Settings saved.';
 $_['text_enabled']              = 'Enabled';
@@ -37,6 +38,8 @@ $_['entry_notify_new_order']    = 'New order';
 $_['entry_notify_status']       = 'Status change';
 $_['entry_notify_low_stock']    = 'Low stock';
 $_['entry_low_stock_qty']       = 'Low stock threshold';
+$_['entry_retry']               = 'Retry failed deliveries';
+$_['entry_max_attempts']        = 'Maximum attempts';
 $_['entry_template_new_order']  = 'Template: new order';
 $_['entry_template_status']     = 'Template: status change';
 $_['entry_template_low_stock']  = 'Template: low stock';
@@ -50,6 +53,9 @@ $_['help_tools']                = 'These buttons also work before saving — the
 $_['help_new_order']            = 'An order is announced once, the first time it reaches one of the ticked statuses.';
 $_['help_status']               = 'Notify when an order moves into a ticked status.';
 $_['help_low_stock_qty']        = 'Notify when, after stock subtraction, a product quantity drops to this value or below.';
+$_['help_retry']                = 'If Telegram did not answer, the order message is sent again on a schedule. The text is re-rendered from the live order.';
+$_['help_max_attempts']         = 'How many times to try delivering one message, the first attempt included.';
+$_['help_cron']                 = 'OpenCart 3 has no built-in scheduler, so add this URL to your hosting cron — once an hour:';
 $_['help_tags']                 = 'A line whose tags all resolve to empty is dropped from the message. Telegram markup allowed: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;s&gt;, &lt;code&gt;, &lt;pre&gt;, &lt;a href&gt;.';
 
 // Tags
@@ -82,6 +88,7 @@ $_['column_order']              = 'Order';
 $_['column_event']              = 'Event';
 $_['column_chat']               = 'Chat';
 $_['column_result']             = 'Result';
+$_['column_attempts']           = 'Attempts';
 $_['column_message']            = 'Message';
 
 // Buttons

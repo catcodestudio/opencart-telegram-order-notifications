@@ -160,3 +160,4 @@ $_['error_license_product']    = 'This key belongs to another CatCode module.';
 $_['error_trial_used']         = 'A trial has already been issued for this store.';
 $_['error_license_network']    = 'Could not reach the licence server. Try again in a few minutes.';
 $_['error_license_generic']    = 'This key does not fit.';
+$_['error_sms_phone']          = 'The number was not recognised. Enter it with the country code, e.g. +380XXXXXXXXX.';

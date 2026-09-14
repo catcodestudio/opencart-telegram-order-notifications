@@ -428,7 +428,8 @@ class CcTelegram extends \Opencart\System\Engine\Controller {
 			$this->jsonResponse(['ok' => true, 'message' => sprintf($this->language->get('text_sms_test_ok'), $res['phone'], $res['message_id'])]);
 			return;
 		}
-		$this->jsonResponse(['ok' => false, 'error' => $this->language->get('error_sms_gateway') . ' ' . $res['status']]);
+		$error = $res['status'] === 'INVALID_PHONE' ? $this->language->get('error_sms_phone') : $this->language->get('error_sms_gateway') . ' ' . $res['status'];
+		$this->jsonResponse(['ok' => false, 'error' => $error]);
 	}
 
 	public function licenseActivate(): void {

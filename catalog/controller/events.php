@@ -3,9 +3,11 @@ namespace Opencart\Catalog\Controller\Extension\CcTelegram;
 
 require_once DIR_EXTENSION . 'cc_telegram/system/library/cc_telegram/settings.php';
 require_once DIR_EXTENSION . 'cc_telegram/system/library/cc_telegram/notifier.php';
+require_once DIR_EXTENSION . 'cc_telegram/system/library/cc_telegram/sms/customer_notifier.php';
 
 use Opencart\System\Library\CcTelegram\Settings;
 use Opencart\System\Library\CcTelegram\Notifier;
+use Opencart\System\Library\CcTelegram\Sms\CustomerNotifier;
 
 /**
  * Order events. Both handlers hang off the single point where an OpenCart order
@@ -20,6 +22,11 @@ class Events extends \Opencart\System\Engine\Controller {
 	 */
 	public function orderHistoryAdded(string &$route, array &$args, mixed &$output): void {
 		$settings = new Settings($this->config);
+
+		// Pro: the customer's Viber / SMS does not depend on the Telegram side
+		// being switched on — a shop may want only one of the two.
+		$this->customerMessage($settings, $args);
+
 		if (!$settings->isEnabled() || !$settings->isConfigured()) {
 			return;
 		}
@@ -93,6 +100,48 @@ class Events extends \Opencart\System\Engine\Controller {
 				continue;
 			}
 			$notifier->lowStock($product, $storeUrl);
+		}
+	}
+
+	/**
+	 * Viber / SMS to the customer for the status that just landed. Never lets an
+	 * exception out: a gateway hiccup must not break checkout or the admin save.
+	 */
+	private function customerMessage(Settings $settings, array $args): void {
+		$orderId  = (int)($args[0] ?? 0);
+		$statusId = (int)($args[1] ?? 0);
+		if ($orderId <= 0 || $statusId <= 0) {
+			return;
+		}
+
+		try {
+			$sms = new CustomerNotifier($this->registry);
+			if (!$sms->isActive()) {
+				return;
+			}
+
+			$this->load->model('checkout/order');
+			$order = $this->model_checkout_order->getOrder($orderId);
+			if (!$order) {
+				return;
+			}
+			$order['order_status_id'] = $statusId;
+
+			$formatter = (new Notifier($this->registry, $settings))->formatter();
+			$sms->handle(
+				$order,
+				$statusId,
+				$this->previousStatusId($orderId),
+				(string)($args[2] ?? ''),
+				static function (array $order, string $template, array $extra) use ($formatter): string {
+					return $formatter->customerText($order, $template, $extra);
+				},
+				static function (int $id) use ($formatter): string {
+					return $formatter->orderStatusName($id);
+				}
+			);
+		} catch (\Throwable $e) {
+			$this->log->write('CatCode Telegram / SMS: ' . $e->getMessage());
 		}
 	}
 

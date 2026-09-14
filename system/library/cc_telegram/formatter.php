@@ -41,6 +41,52 @@ class Formatter {
 	}
 
 	/**
+	 * Plain-text customer message (Viber / SMS): nothing escaped, no admin link,
+	 * items as "Name × 2". The same "a line whose tags are all empty is dropped"
+	 * rule applies, so "ТТН: {tracking_number}" disappears until there is one.
+	 *
+	 * @param array<string,string> $extra Extra values.
+	 */
+	public function customerText(array $order, string $template, array $extra = []): string {
+		$values = $this->orderValues($order);
+		unset($values['admin_url'], $values['product_name'], $values['product_sku'], $values['stock_qty']);
+
+		$lines = [];
+		foreach ($this->products((int)($order['order_id'] ?? 0)) as $item) {
+			$lines[] = (string)$item['name'] . ' × ' . (int)$item['quantity'];
+		}
+		$values['items'] = implode("\n", $lines);
+
+		$values = array_merge($values, $extra);
+		$out    = [];
+		foreach (explode("\n", str_replace("\r\n", "\n", html_entity_decode($template, ENT_QUOTES, 'UTF-8'))) as $line) {
+			if (!preg_match_all('/\{([a-z0-9_]+)\}/', $line, $m)) {
+				$out[] = $line;
+				continue;
+			}
+			$known = 0;
+			$empty = 0;
+			foreach ($m[1] as $key) {
+				if (!array_key_exists($key, $values)) {
+					continue;
+				}
+				++$known;
+				$value = trim((string)$values[$key]);
+				if ($value === '') {
+					++$empty;
+				}
+				$line = str_replace('{' . $key . '}', $value, $line);
+			}
+			if ($known > 0 && $known === $empty) {
+				continue;
+			}
+			$out[] = $line;
+		}
+
+		return trim((string)preg_replace("/\n{3,}/", "\n\n", implode("\n", $out)));
+	}
+
+	/**
 	 * Render a template against a product (low-stock notice).
 	 *
 	 * @param array<string,mixed> $product Row from the product table.

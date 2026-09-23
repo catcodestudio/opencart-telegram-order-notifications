@@ -17,23 +17,57 @@ use Opencart\System\Library\CcTelegram\Sms\CustomerNotifier;
 class Events extends \Opencart\System\Engine\Controller {
 
 	/**
+	 * order_id => stack of the statuses the order held before each addHistory()
+	 * still in progress. Static: the event system builds a new controller for
+	 * every handler call. A stack rather than one slot, so an addHistory() made
+	 * from inside another one's `after` handlers cannot overwrite the outer
+	 * call's snapshot.
+	 *
+	 * @var array<int,int[]>
+	 */
+	private static array $previous = [];
+
+	/**
+	 * Trigger: catalog/model/checkout/order.addHistory/before
+	 *
+	 * The order row still holds the old status here. Reading it back from
+	 * order_history afterwards is not reliable: other extensions (CRM and
+	 * delivery connectors) append their own history rows with the same status
+	 * in the same request, so "the second row from the top" was the new status
+	 * again and the message read "Shipped → Shipped".
+	 */
+	public function orderHistoryBefore(&$route, &$args): void {
+		$orderId = (int)($args[0] ?? 0);
+		if ($orderId <= 0) {
+			return;
+		}
+
+		$row = $this->db->query("SELECT `order_status_id` FROM `" . DB_PREFIX . "order`
+			WHERE `order_id` = '" . $orderId . "' LIMIT 1")->row;
+
+		self::$previous[$orderId][] = isset($row['order_status_id']) ? (int)$row['order_status_id'] : 0;
+	}
+
+	/**
 	 * Trigger: catalog/model/checkout/order.addHistory/after
 	 * args: [order_id, order_status_id, comment, notify, override]
 	 */
 	public function orderHistoryAdded(string &$route, array &$args, mixed &$output): void {
 		$settings = new Settings($this->config);
 
-		// Pro: the customer's Viber / SMS does not depend on the Telegram side
-		// being switched on — a shop may want only one of the two.
-		$this->customerMessage($settings, $args);
-
-		if (!$settings->isEnabled() || !$settings->isConfigured()) {
-			return;
-		}
-
 		$orderId  = (int)($args[0] ?? 0);
 		$statusId = (int)($args[1] ?? 0);
 		if ($orderId <= 0 || $statusId <= 0) {
+			return;
+		}
+
+		$previousId = $this->previousStatusId($orderId, $statusId, (string)($args[2] ?? ''));
+
+		// Pro: the customer's Viber / SMS does not depend on the Telegram side
+		// being switched on — a shop may want only one of the two.
+		$this->customerMessage($settings, $args, $previousId);
+
+		if (!$settings->isEnabled() || !$settings->isConfigured()) {
 			return;
 		}
 
@@ -55,7 +89,13 @@ class Events extends \Opencart\System\Engine\Controller {
 			return;
 		}
 
-		$notifier->statusChanged($order, $this->previousStatusId($orderId), $statusId);
+		// The same status written again (a payment callback, a comment added in
+		// the admin) is not a change of status.
+		if ($previousId === $statusId) {
+			return;
+		}
+
+		$notifier->statusChanged($order, $previousId, $statusId);
 	}
 
 	/**
@@ -107,7 +147,7 @@ class Events extends \Opencart\System\Engine\Controller {
 	 * Viber / SMS to the customer for the status that just landed. Never lets an
 	 * exception out: a gateway hiccup must not break checkout or the admin save.
 	 */
-	private function customerMessage(Settings $settings, array $args): void {
+	private function customerMessage(Settings $settings, array $args, int $previousId): void {
 		$orderId  = (int)($args[0] ?? 0);
 		$statusId = (int)($args[1] ?? 0);
 		if ($orderId <= 0 || $statusId <= 0) {
@@ -131,7 +171,7 @@ class Events extends \Opencart\System\Engine\Controller {
 			$sms->handle(
 				$order,
 				$statusId,
-				$this->previousStatusId($orderId),
+				$previousId,
 				(string)($args[2] ?? ''),
 				static function (array $order, string $template, array $extra) use ($formatter): string {
 					return $formatter->customerText($order, $template, $extra);
@@ -146,13 +186,34 @@ class Events extends \Opencart\System\Engine\Controller {
 	}
 
 	/**
-	 * The status the order held before the history row that just landed.
-	 * 0 when this is the very first history entry.
+	 * The status the order held before this addHistory() call; 0 for a new order.
+	 *
+	 * Normally the snapshot taken by orderHistoryBefore(). A shop that updated
+	 * the files without opening the module settings yet has no `before` hook
+	 * registered — then the history is read, but the row of THIS call is looked
+	 * up by its status and comment instead of taking the second row from the
+	 * top, which may be a row another extension appended afterwards.
 	 */
-	private function previousStatusId(int $orderId): int {
-		$rows = $this->db->query("SELECT `order_status_id` FROM `" . DB_PREFIX . "order_history`
-			WHERE `order_id` = " . (int)$orderId . "
-			ORDER BY `order_history_id` DESC LIMIT 2")->rows;
+	private function previousStatusId(int $orderId, int $statusId, string $comment): int {
+		if (!empty(self::$previous[$orderId])) {
+			$previous = (int)array_pop(self::$previous[$orderId]);
+
+			if (!self::$previous[$orderId]) {
+				unset(self::$previous[$orderId]);
+			}
+
+			return $previous;
+		}
+
+		$rows = $this->db->query("SELECT `order_status_id`, `comment` FROM `" . DB_PREFIX . "order_history`
+			WHERE `order_id` = '" . (int)$orderId . "'
+			ORDER BY `order_history_id` DESC LIMIT 50")->rows;
+
+		foreach ($rows as $i => $row) {
+			if ((int)$row['order_status_id'] === $statusId && trim((string)$row['comment']) === trim($comment)) {
+				return isset($rows[$i + 1]) ? (int)$rows[$i + 1]['order_status_id'] : 0;
+			}
+		}
 
 		return isset($rows[1]) ? (int)$rows[1]['order_status_id'] : 0;
 	}

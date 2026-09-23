@@ -33,7 +33,41 @@ class CcTelegram extends \Opencart\System\Engine\Controller {
 		$this->response->setOutput(json_encode($data));
 	}
 
+	/**
+	 * The `before` hook that snapshots the status an order had before a new
+	 * history row (1.1.1). Registered by install() and, for a shop that updated
+	 * the files over an existing install, on the next visit to this screen.
+	 */
+	private function addBeforeEvent(): void {
+		$this->load->model('setting/event');
+		$this->model_setting_event->deleteEventByCode('cc_telegram_order_before');
+		$this->model_setting_event->addEvent([
+			'code'        => 'cc_telegram_order_before',
+			'description' => 'CatCode Telegram Notifications — remember the previous order status',
+			'trigger'     => 'catalog/model/checkout/order*addHistory/before',
+			'action'      => 'extension/cc_telegram/events.orderHistoryBefore',
+			'status'      => 1,
+			'sort_order'  => 0,
+		]);
+	}
+
+	private function syncEvents(): void {
+		$this->load->model('setting/event');
+		if (!$this->model_setting_event->getEventByCode('cc_telegram_order_history')) {
+			return; // not installed as a module yet — install() registers everything
+		}
+		if (!$this->model_setting_event->getEventByCode('cc_telegram_order_before')) {
+			$this->addBeforeEvent();
+		}
+	}
+
 	public function index(): void {
+		try {
+			$this->syncEvents();
+		} catch (\Throwable $e) {
+			// Never block the settings screen over a hook.
+		}
+
 		$this->load->language($this->route);
 		$this->document->setTitle($this->language->get('heading_title'));
 
@@ -527,6 +561,8 @@ class CcTelegram extends \Opencart\System\Engine\Controller {
 			'sort_order'  => 20,
 		]);
 
+		$this->addBeforeEvent();
+
 		$this->model_setting_event->deleteEventByCode('cc_telegram_low_stock');
 		$this->model_setting_event->addEvent([
 			'code'        => 'cc_telegram_low_stock',
@@ -558,6 +594,7 @@ class CcTelegram extends \Opencart\System\Engine\Controller {
 		$this->load->model('setting/event');
 		try {
 			$this->model_setting_event->deleteEventByCode('cc_telegram_order_history');
+			$this->model_setting_event->deleteEventByCode('cc_telegram_order_before');
 			$this->model_setting_event->deleteEventByCode('cc_telegram_low_stock');
 		} catch (\Throwable $e) {
 			// Nothing registered.

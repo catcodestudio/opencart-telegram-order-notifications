@@ -3,10 +3,13 @@ namespace Opencart\System\Library\CcTelegram;
 require_once __DIR__ . '/polyfill.php';
 
 /**
- * At-rest encryption for the stored Telegram bot token. Uses
- * sodium_crypto_secretbox when available, otherwise an authenticated
- * HMAC-stream cipher; a legacy plaintext value is returned as-is on decrypt so
- * an upgrade never loses a token.
+ * At-rest encryption for the stored Telegram bot token: an authenticated
+ * HMAC-stream cipher that needs nothing beyond core PHP. New values are never
+ * written with sodium: hosts often run CLI and web on different PHP builds,
+ * and a token saved where sodium exists could not be read where it does not,
+ * so every message silently failed with 404. Old sodium values (cctg1) are
+ * still read when sodium is present; a legacy plaintext value is returned
+ * as-is on decrypt so an upgrade never loses a token.
  *
  * The key is derived from OpenCart path/db constants, so a value encrypted in
  * admin decrypts from catalog / cron / CLI without any shared option row.
@@ -20,12 +23,6 @@ class Crypto {
 			return '';
 		}
 		$key = self::key();
-
-		if (function_exists('sodium_crypto_secretbox')) {
-			$nonce  = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-			$cipher = sodium_crypto_secretbox($plain, $nonce, substr($key, 0, SODIUM_CRYPTO_SECRETBOX_KEYBYTES));
-			return self::PREFIX_SODIUM . base64_encode($nonce . $cipher);
-		}
 
 		$nonce  = random_bytes(16);
 		$stream = self::hmacStream($key, $nonce, strlen($plain));
@@ -65,6 +62,10 @@ class Crypto {
 			}
 			$stream = self::hmacStream($key, $nonce, strlen($ct));
 			return $ct ^ $stream;
+		}
+
+		if (str_starts_with($stored, self::PREFIX_SODIUM)) {
+			return ''; // Saved under a PHP build with sodium; re-enter the token in settings.
 		}
 
 		return $stored; // Legacy plaintext.

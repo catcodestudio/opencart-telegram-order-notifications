@@ -1,5 +1,11 @@
 # Telegram Order Notifications for OpenCart 4 — changelog
 
+## 1.1.2 — 2026-10-23
+- Bot token is stored with a cipher that needs only core PHP. A token saved
+  where PHP had sodium could not be read on a host whose web PHP lacks it, and
+  every message failed with "Not Found". A token saved by an older version that
+  cannot be read now shows as empty: enter it again in the settings.
+
 ## 1.1.1 — 2026-09-23
 - Status change message: the previous status is taken from the order itself
   right before the change (a new `addHistory/before` hook), not from the order

@@ -18,6 +18,7 @@
 
     <ul class="nav nav-tabs">
       <li class="active"><a href="#tab-settings" data-toggle="tab">{{ tab_settings }}</a></li>
+      <li><a href="#tab-sms" data-toggle="tab">{{ text_sms_tab }} <span class="label label-primary">Pro</span></a></li>
       <li><a href="#tab-log" data-toggle="tab">{{ tab_log }}</a></li>
     </ul>
 
@@ -201,6 +202,150 @@
         </form>
       </div>
 
+      <div class="tab-pane" id="tab-sms">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-key"></i> {{ text_license }}</h3></div>
+          <div class="panel-body form-horizontal">
+            <p class="text-muted">{{ text_sms_lead }}</p>
+            <p>
+              {% if is_pro %}<span class="label label-success">{{ text_pro_active }}</span>
+                {% if license_owned %} {{ text_license_owned }}{% elseif license_is_trial %} {{ text_trial_left|format(trial_days_left) }}{% endif %}
+              {% else %}<span class="label label-default">{{ text_pro_inactive }}</span>
+                {% if has_license %} <span class="text-danger">{{ text_license_invalid }}</span>{% endif %}
+              {% endif %}
+            </p>
+            {% if has_license %}
+            <div class="form-group">
+              <label class="col-sm-3 control-label">{{ entry_license_key }}</label>
+              <div class="col-sm-9"><code>{{ license_key_mask }}</code>
+                <button type="button" class="btn btn-danger btn-xs" id="cctg-lic-deactivate">{{ button_license_deactivate }}</button>
+                <div class="text-muted">{{ help_license_deactivate }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-lic-key">{{ entry_license_key }}</label>
+              <div class="col-sm-9">
+                <div class="input-group" style="max-width:520px">
+                  <input type="text" id="cctg-lic-key" class="form-control" placeholder="CC-XXXX-XXXX-XXXX" autocomplete="off"/>
+                  <span class="input-group-btn"><button type="button" class="btn btn-primary" id="cctg-lic-activate">{{ button_license_activate }}</button></span>
+                </div>
+                <div class="text-muted"><a href="{{ module_url }}" target="_blank" rel="noopener">{{ text_buy_license }}</a></div>
+              </div>
+            </div>
+            {% if trial_available %}
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-trial-email">{{ entry_trial }}</label>
+              <div class="col-sm-9">
+                <div class="input-group" style="max-width:520px">
+                  <input type="email" id="cctg-trial-email" class="form-control" value="{{ trial_email }}"/>
+                  <span class="input-group-btn"><button type="button" class="btn btn-default" id="cctg-lic-trial">{{ button_trial }}</button></span>
+                </div>
+                <div class="text-muted">{{ help_trial }}</div>
+              </div>
+            </div>
+            {% endif %}
+            {% endif %}
+          </div>
+        </div>
+
+        <form id="form-cctg-sms" class="form-horizontal">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-commenting"></i> {{ text_sms_gateway }} <span class="label label-primary">Pro</span></h3></div>
+          <div class="panel-body">
+            {% if not is_pro %}<div class="alert alert-warning">{{ text_sms_locked }}</div>{% endif %}
+            <div class="form-group">
+              <label class="col-sm-3 control-label">{{ entry_sms_enabled }}</label>
+              <div class="col-sm-9"><div class="checkbox"><label><input type="checkbox" name="sms_enabled" value="1"{% if sms_enabled == '1' %} checked{% endif %}/> {{ text_send }}</label></div></div>
+            </div>
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-sms-gw">{{ entry_sms_gateway }}</label>
+              <div class="col-sm-9">
+                <select id="cctg-sms-gw" name="sms_gateway" class="form-control" style="max-width:320px">
+                  {% for id, label in sms_gateways %}<option value="{{ id }}"{% if id == sms_gateway %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+                <div class="text-muted">{{ help_sms_gateway }}</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-sms-key">{{ entry_sms_key }}</label>
+              <div class="col-sm-9">
+                <input type="password" id="cctg-sms-key" name="sms_api_key" value="" class="form-control" style="max-width:520px" autocomplete="new-password" placeholder="{% if sms_key_set %}{{ text_secret_set }}{% endif %}"/>
+                <div class="text-muted">{{ help_sms_key }}{% if sms_key_set %} <span class="text-success">{{ text_key_saved }}</span>{% endif %}</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-sms-ch">{{ entry_sms_channel }}</label>
+              <div class="col-sm-9">
+                <select id="cctg-sms-ch" name="sms_channel" class="form-control" style="max-width:320px">
+                  <option value="viber_sms"{% if sms_channel == 'viber_sms' %} selected{% endif %}>{{ text_channel_hybrid }}</option>
+                  <option value="viber"{% if sms_channel == 'viber' %} selected{% endif %}>{{ text_channel_viber }}</option>
+                  <option value="sms"{% if sms_channel == 'sms' %} selected{% endif %}>{{ text_channel_sms }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-sms-senders">{{ entry_sms_senders }}</label>
+              <div class="col-sm-9">
+                <textarea id="cctg-sms-senders" name="sms_sms_senders" rows="3" class="form-control" placeholder="UA=MyShop&#10;PL=MyShopPL&#10;*=MyShop">{{ sms_sms_senders }}</textarea>
+                <div class="text-muted">{{ help_sms_senders }}</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-viber-senders">{{ entry_viber_senders }}</label>
+              <div class="col-sm-9"><textarea id="cctg-viber-senders" name="sms_viber_senders" rows="3" class="form-control" placeholder="UA=MyShop&#10;*=MyShop">{{ sms_viber_senders }}</textarea></div>
+            </div>
+            <div class="form-group">
+              <label class="col-sm-3 control-label" for="cctg-sms-country">{{ entry_sms_country }}</label>
+              <div class="col-sm-9">
+                <select id="cctg-sms-country" name="sms_country" class="form-control" style="max-width:160px">
+                  {% for iso in sms_countries %}<option value="{{ iso }}"{% if iso == sms_country %} selected{% endif %}>{{ iso }}</option>{% endfor %}
+                </select>
+                <div class="text-muted">{{ help_sms_country }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-list"></i> {{ text_sms_rules }}</h3></div>
+          <div class="panel-body">
+            <p class="text-muted">{{ help_sms_rules }}</p>
+            {% for r in sms_rules %}
+            <div class="form-group">
+              <label class="col-sm-3 control-label">{{ r.name }}</label>
+              <div class="col-sm-9">
+                <div class="checkbox"><label><input type="checkbox" name="sms_rules[{{ r.id }}][on]" value="1"{% if r.on == '1' %} checked{% endif %}/> {{ text_send }}</label></div>
+                <textarea name="sms_rules[{{ r.id }}][text]" rows="2" class="form-control">{{ r.text }}</textarea>
+              </div>
+            </div>
+            {% endfor %}
+            <div class="form-group">
+              <div class="col-sm-9 col-sm-offset-3">
+                <div class="text-muted">{{ text_placeholders }}
+                  {% for tag in ['{site_name}', '{order_number}', '{order_total}', '{order_status}', '{order_status_old}', '{customer_first_name}', '{customer_name}', '{tracking_number}', '{comment}', '{shipping_method}', '{payment_method}', '{items}'] %}<code>{{ tag }}</code> {% endfor %}
+                </div>
+                <div class="text-muted">{{ help_sms_tags }}</div>
+                <p style="margin-top:12px"><button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> {{ button_save }}</button></p>
+              </div>
+            </div>
+          </div>
+        </div>
+        </form>
+
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-flask"></i> {{ text_sms_check }}</h3></div>
+          <div class="panel-body">
+            <p><button type="button" id="cctg-sms-balance" class="btn btn-default">{{ button_sms_balance }}</button> <span class="text-muted">{{ help_sms_balance }}</span></p>
+            <div class="input-group" style="max-width:520px">
+              <input type="tel" id="cctg-sms-phone" class="form-control" placeholder="+380XXXXXXXXX"/>
+              <span class="input-group-btn"><button type="button" id="cctg-sms-test" class="btn btn-default"{% if not is_pro %} disabled{% endif %}>{{ button_sms_test }}</button></span>
+            </div>
+            <div class="text-muted">{{ help_sms_test }}</div>
+          </div>
+        </div>
+      </div>
+
       <div class="tab-pane" id="tab-log">
         <div class="panel panel-default">
           <div class="panel-heading">
@@ -277,5 +422,31 @@ function cctgPost(url, button) {
 
 $('#cctg-test').on('click', function () { cctgPost(cctgTestUrl, $(this)); });
 $('#cctg-find').on('click', function () { cctgPost(cctgFindUrl, $(this)); });
+
+// --- Pro: Viber / SMS ---------------------------------------------------------
+function cctgSms(url, data, button) {
+  var original = button ? button.html() : '';
+  if (button) { button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>'); }
+  $.ajax({
+    url: url, type: 'post', dataType: 'json', data: data,
+    success: function (json) {
+      cctgAlert(json);
+      $('html, body').animate({ scrollTop: 0 }, 200);
+      if (json.reload) { window.location.hash = 'tab-sms'; window.location.reload(); }
+    },
+    error: function (xhr) { cctgAlert({ error: xhr.status + ' ' + xhr.statusText }); },
+    complete: function () { if (button) { button.prop('disabled', false).html(original); } }
+  });
+}
+$('#form-cctg-sms').on('submit', function (e) {
+  e.preventDefault();
+  cctgSms('{{ sms_save|raw }}', $(this).serialize(), $(this).find('button[type=submit]'));
+});
+$('#cctg-sms-balance').on('click', function () { cctgSms('{{ sms_balance|raw }}', {}, $(this)); });
+$('#cctg-sms-test').on('click', function () { cctgSms('{{ sms_test|raw }}', { phone: $('#cctg-sms-phone').val() }, $(this)); });
+$('#cctg-lic-activate').on('click', function () { cctgSms('{{ license_activate|raw }}', { license_key: $('#cctg-lic-key').val() }, $(this)); });
+$('#cctg-lic-trial').on('click', function () { cctgSms('{{ license_trial|raw }}', { trial_email: $('#cctg-trial-email').val() }, $(this)); });
+$('#cctg-lic-deactivate').on('click', function () { cctgSms('{{ license_deactivate|raw }}', {}, $(this)); });
+if (window.location.hash === '#tab-sms') { $('a[href="#tab-sms"]').tab('show'); }
 </script>
 {{ footer }}

@@ -388,17 +388,24 @@ class CcTelegramCrypto {
 		return hash('sha256', 'CcTelegram|' . $material, true);
 	}
 
+	/**
+	 * New values use an authenticated HMAC-SHA256 stream cipher ("cc3") that
+	 * needs nothing beyond core PHP. The earlier AES variant ("cc2") required
+	 * openssl wherever the token was read: a host whose web PHP lacks it while
+	 * the admin's has it turned the token into garbage, and every message failed
+	 * with "Not Found". cc2 values are still read where openssl exists.
+	 */
 	public static function encrypt($plain) {
 		$plain = (string)$plain;
 		if ($plain === '') {
 			return '';
 		}
 		$secret = self::secret();
-		$bytes  = '';
-		for ($i = 0, $n = strlen($plain); $i < $n; $i++) {
-			$bytes .= chr(ord($plain[$i]) ^ ord($secret[$i % strlen($secret)]));
-		}
-		return self::PREFIX . base64_encode($bytes);
+		$key    = hash_hmac('sha256', 'cc3', $secret, true);
+		$nonce  = self::nonce();
+		$ct     = $plain ^ self::stream($key, $nonce, strlen($plain));
+		$mac    = hash_hmac('sha256', $nonce . $ct, $key, true);
+		return self::PREFIX . base64_encode("\xCC" . 'cc3' . $nonce . $mac . $ct);
 	}
 
 	public static function decrypt($stored) {
@@ -414,11 +421,54 @@ class CcTelegramCrypto {
 			return '';
 		}
 		$secret = self::secret();
-		$out    = '';
-		for ($i = 0, $n = strlen($bytes); $i < $n; $i++) {
-			$out .= chr(ord($bytes[$i]) ^ ord($secret[$i % strlen($secret)]));
+		if (strncmp($bytes, "\xCC" . 'cc3', 4) === 0) {
+			if (strlen($bytes) < 52) {
+				return '';
+			}
+			$key   = hash_hmac('sha256', 'cc3', $secret, true);
+			$nonce = substr($bytes, 4, 16);
+			$mac   = substr($bytes, 20, 32);
+			$ct    = (string)substr($bytes, 52);
+			if (!hash_equals(hash_hmac('sha256', $nonce . $ct, $key, true), $mac)) {
+				return '';
+			}
+			return $ct ^ self::stream($key, $nonce, strlen($ct));
 		}
-		return $out;
+		if (strncmp($bytes, "\xCC" . 'cc2', 4) === 0) {
+			// Saved with openssl. Without it the value cannot be read: an empty token
+			// (the settings ask for it again) instead of garbage sent to Telegram.
+			if (strlen($bytes) <= 52 || !function_exists('openssl_decrypt')) {
+				return '';
+			}
+			$iv  = substr($bytes, 4, 16);
+			$mac = substr($bytes, 20, 32);
+			$ct  = substr($bytes, 52);
+			if (!hash_equals(hash_hmac('sha256', $iv . $ct, hash_hmac('sha256', 'mac', $secret, true), true), $mac)) {
+				return '';
+			}
+			$out = openssl_decrypt($ct, 'aes-256-cbc', hash_hmac('sha256', 'enc', $secret, true), OPENSSL_RAW_DATA, $iv);
+			return $out === false ? '' : $out;
+		}
+		return $bytes ^ str_pad('', strlen($bytes), $secret); // written before the switch to AES
+	}
+
+	private static function stream($key, $nonce, $len) {
+		$out     = '';
+		$counter = 0;
+		while (strlen($out) < $len) {
+			$out .= hash_hmac('sha256', $nonce . pack('N', $counter++), $key, true);
+		}
+		return substr($out, 0, $len);
+	}
+
+	private static function nonce() {
+		if (function_exists('random_bytes')) {
+			return random_bytes(16);
+		}
+		if (function_exists('openssl_random_pseudo_bytes')) {
+			return openssl_random_pseudo_bytes(16);
+		}
+		return substr(hash('sha256', uniqid((string)mt_rand(), true) . microtime() . mt_rand(), true), 0, 16);
 	}
 }
 

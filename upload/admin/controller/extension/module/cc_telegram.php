@@ -1,5 +1,6 @@
 <?php
 require_once DIR_SYSTEM . 'library/cc_telegram.php';
+require_once DIR_SYSTEM . 'library/cc_telegram_sms.php';
 
 /**
  * Telegram Order Notifications — admin controller (OpenCart 3.x).
@@ -96,7 +97,8 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 		}
 
 		// The token is write-only: show whether one is stored, never its value.
-		$data['has_token'] = trim((string)$this->config->get('module_cc_telegram_bot_token')) !== '';
+		// A stored value that cannot be read here (saved under another PHP build) counts as no token: the form asks for it again.
+		$data['has_token'] = CcTelegramCrypto::decrypt((string)$this->config->get('module_cc_telegram_bot_token')) !== '';
 
 		$this->load->model('localisation/order_status');
 		$data['order_statuses'] = $this->model_localisation_order_status->getOrderStatuses();
@@ -106,6 +108,8 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 
 		$data['placeholders'] = $this->placeholders();
 		$data['logs']         = $this->logRows();
+
+		$this->smsData($data);
 
 		$data['header']      = $this->load->controller('common/header');
 		$data['column_left'] = $this->load->controller('common/column_left');
@@ -168,6 +172,198 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 			: (string)$this->config->get('module_cc_telegram_bot_token');
 
 		return $out;
+	}
+
+	// ------------------------------------------------- Pro: Viber / SMS to customers
+
+	private function smsData(array &$data) {
+		// No dependable cron in OpenCart 3: the licence is re-checked at most once
+		// a day when the owner opens this page.
+		CcTelegramSmsLicense::maybeVerify($this->registry);
+
+		$sms   = new CcTelegramSmsNotifier($this->registry);
+		$token = 'user_token=' . $this->session->data['user_token'];
+
+		$data['is_pro']            = CcTelegramSmsLicense::isPro($this->registry) ? 1 : 0;
+		$data['has_license']       = CcTelegramSmsLicense::hasKey($this->registry) ? 1 : 0;
+		$data['license_owned']     = CcTelegramSmsLicense::isOwned($this->registry) ? 1 : 0;
+		$data['license_is_trial']  = CcTelegramSmsLicense::isTrialKey($this->registry) ? 1 : 0;
+		$data['trial_available']   = CcTelegramSmsLicense::trialAvailable($this->registry) ? 1 : 0;
+		$data['trial_days_left']   = CcTelegramSmsLicense::trialDaysLeft($this->registry);
+		$key                       = (string)$this->config->get(CcTelegramSmsLicense::PREFIX . 'license_key');
+		$data['license_key_mask']  = strlen($key) > 8 ? substr($key, 0, 4) . '••••••' . substr($key, -4) : $key;
+		$data['trial_email']       = (string)$this->config->get('config_email');
+		$data['module_url']        = 'https://catcode.com.ua/modules/opencart-telegram-notifications/';
+
+		$data['sms_enabled']       = $sms->get('enabled');
+		$data['sms_gateway']       = $sms->get('gateway');
+		$data['sms_channel']       = $sms->get('channel');
+		$data['sms_sms_senders']   = $sms->get('sms_senders');
+		$data['sms_viber_senders'] = $sms->get('viber_senders');
+		$data['sms_country']       = $sms->get('country');
+		$data['sms_key_set']       = $sms->get('api_key') !== '' ? 1 : 0;
+		$data['sms_gateways']      = CcTelegramSmsGateway::available();
+		$data['sms_countries']     = array_keys(CcTelegramSmsPhone::countries());
+
+		$rules = $sms->rules();
+		if (!$rules && (string)$this->config->get(CcTelegramSmsNotifier::PREFIX . 'rules') === '') {
+			foreach (CcTelegramSmsNotifier::defaultTexts() as $id => $text) {
+				$rules[$id] = array('on' => in_array($id, array(2, 3), true) ? '1' : '0', 'text' => $text);
+			}
+		}
+		$data['sms_rules'] = array();
+		foreach ($data['order_statuses'] as $status) {
+			$id = (int)$status['order_status_id'];
+			$data['sms_rules'][] = array(
+				'id'   => $id,
+				'name' => $status['name'],
+				'on'   => isset($rules[$id]) ? $rules[$id]['on'] : '0',
+				'text' => isset($rules[$id]) ? $rules[$id]['text'] : '',
+			);
+		}
+
+		// Decoded: these go to $.ajax, where a literal "&amp;" loses the user_token.
+		foreach (array('sms_save' => 'smssave', 'sms_balance' => 'smsbalance', 'sms_test' => 'smstest', 'license_activate' => 'licenseactivate', 'license_trial' => 'licensetrial', 'license_deactivate' => 'licensedeactivate') as $var => $method) {
+			$data[$var] = html_entity_decode($this->url->link($this->route . '/' . $method, $token, true), ENT_QUOTES, 'UTF-8');
+		}
+	}
+
+	public function smssave() {
+		$this->load->language($this->route);
+		if (!$this->user->hasPermission('modify', $this->route)) {
+			return $this->json(array('error' => $this->language->get('error_permission')));
+		}
+		$post    = $this->request->post;
+		$sms     = new CcTelegramSmsNotifier($this->registry);
+		$gateway = isset($post['sms_gateway']) ? (string)$post['sms_gateway'] : 'turbosms';
+		$gateways = CcTelegramSmsGateway::available();
+		$gateway = isset($gateways[$gateway]) ? $gateway : 'turbosms';
+		$channel = isset($post['sms_channel']) ? (string)$post['sms_channel'] : '';
+		$country = strtoupper(isset($post['sms_country']) ? (string)$post['sms_country'] : 'UA');
+		$countries = CcTelegramSmsPhone::countries();
+
+		$key = trim(html_entity_decode(isset($post['sms_api_key']) ? (string)$post['sms_api_key'] : '', ENT_QUOTES, 'UTF-8'));
+		if ($key === '' && $gateway === $sms->get('gateway')) {
+			$stored = (string)$this->config->get(CcTelegramSmsNotifier::PREFIX . 'api_key');
+		} else {
+			$stored = $key === '' ? '' : CcTelegramCrypto::encrypt($key);
+		}
+
+		$rules = array();
+		foreach ((array)(isset($post['sms_rules']) ? $post['sms_rules'] : array()) as $id => $rule) {
+			$id   = (int)$id;
+			$text = trim(html_entity_decode(isset($rule['text']) ? (string)$rule['text'] : '', ENT_QUOTES, 'UTF-8'));
+			$on   = !empty($rule['on']) ? '1' : '0';
+			if ($id > 0 && ($text !== '' || $on === '1')) {
+				$rules[$id] = array('on' => $on, 'text' => $text);
+			}
+		}
+
+		$p      = CcTelegramSmsNotifier::PREFIX;
+		$values = array(
+			$p . 'enabled'       => !empty($post['sms_enabled']) ? '1' : '0',
+			$p . 'gateway'       => $gateway,
+			$p . 'api_key'       => $stored,
+			$p . 'channel'       => in_array($channel, CcTelegramSmsGateway::channels(), true) ? $channel : CcTelegramSmsGateway::CHANNEL_HYBRID,
+			$p . 'sms_senders'   => trim(html_entity_decode(isset($post['sms_sms_senders']) ? (string)$post['sms_sms_senders'] : '', ENT_QUOTES, 'UTF-8')),
+			$p . 'viber_senders' => trim(html_entity_decode(isset($post['sms_viber_senders']) ? (string)$post['sms_viber_senders'] : '', ENT_QUOTES, 'UTF-8')),
+			$p . 'country'       => isset($countries[$country]) ? $country : 'UA',
+			$p . 'rules'         => (string)json_encode($rules, JSON_UNESCAPED_UNICODE),
+		);
+
+		// Same group as the licence rows: carry those over, editSetting() replaces the group.
+		$this->load->model('setting/setting');
+		$current = $this->model_setting_setting->getSetting(CcTelegramSmsNotifier::GROUP);
+		foreach (CcTelegramSmsLicense::serverOwned() as $field) {
+			if (isset($current[$field])) {
+				$values[$field] = $current[$field];
+			}
+		}
+		$this->model_setting_setting->editSetting(CcTelegramSmsNotifier::GROUP, $values);
+
+		return $this->json(array('success' => $this->language->get('text_sms_saved')));
+	}
+
+	public function smsbalance() {
+		$this->load->language($this->route);
+		if (!$this->user->hasPermission('modify', $this->route)) {
+			return $this->json(array('error' => $this->language->get('error_permission')));
+		}
+		$gateway = (new CcTelegramSmsNotifier($this->registry))->gateway();
+		$res     = $gateway->balance();
+		if ($res['ok']) {
+			return $this->json(array('success' => sprintf($this->language->get('text_sms_balance'), $gateway->label(), $res['balance'])));
+		}
+		return $this->json(array('error' => $this->language->get('error_sms_gateway') . ' ' . $res['status']));
+	}
+
+	public function smstest() {
+		$this->load->language($this->route);
+		if (!$this->user->hasPermission('modify', $this->route)) {
+			return $this->json(array('error' => $this->language->get('error_permission')));
+		}
+		if (!CcTelegramSmsLicense::isPro($this->registry)) {
+			return $this->json(array('error' => $this->language->get('error_sms_pro')));
+		}
+		$phone = isset($this->request->post['phone']) ? (string)$this->request->post['phone'] : '';
+		$text  = sprintf($this->language->get('text_sms_test_body'), html_entity_decode((string)$this->config->get('config_name'), ENT_QUOTES, 'UTF-8'));
+		$res   = (new CcTelegramSmsNotifier($this->registry))->sendTest($phone, $text);
+		if ($res['ok']) {
+			return $this->json(array('success' => sprintf($this->language->get('text_sms_test_ok'), $res['phone'], $res['message_id'])));
+		}
+		return $this->json(array('error' => $res['status'] === 'INVALID_PHONE' ? $this->language->get('error_sms_phone') : $this->language->get('error_sms_gateway') . ' ' . $res['status']));
+	}
+
+	public function licenseactivate() {
+		$key = isset($this->request->post['license_key']) ? (string)$this->request->post['license_key'] : '';
+		$this->licenseAction('activate', $key, 'text_license_activated');
+	}
+
+	public function licensetrial() {
+		$email = isset($this->request->post['trial_email']) ? (string)$this->request->post['trial_email'] : '';
+		$this->licenseAction('trial', $email, 'text_trial_started');
+	}
+
+	public function licensedeactivate() {
+		$this->licenseAction('deactivate', '', 'text_license_deactivated');
+	}
+
+	private function licenseAction($what, $value, $okKey) {
+		$this->load->language($this->route);
+		if (!$this->user->hasPermission('modify', $this->route)) {
+			return $this->json(array('error' => $this->language->get('error_permission')));
+		}
+		if ($what === 'activate') {
+			$res = CcTelegramSmsLicense::activate($this->registry, $value);
+		} elseif ($what === 'trial') {
+			$res = CcTelegramSmsLicense::startTrial($this->registry, $value);
+		} else {
+			CcTelegramSmsLicense::deactivate($this->registry);
+			$res = array('ok' => true);
+		}
+		if (!empty($res['ok'])) {
+			return $this->json(array('success' => $this->language->get($okKey), 'reload' => 1));
+		}
+		$map  = array(
+			'bad_email'       => 'error_license_email',
+			'missing_key'     => 'error_license_format',
+			'invalid_key'     => 'error_license_invalid',
+			'expired'         => 'error_license_expired',
+			'limit_reached'   => 'error_license_limit',
+			'wrong_product'   => 'error_license_product',
+			'trial_used_site' => 'error_trial_used',
+			'trial_used'      => 'error_trial_used',
+			'network'         => 'error_license_network',
+			'no_curl'         => 'error_license_network',
+			'bad_response'    => 'error_license_network',
+		);
+		$code = isset($res['error']) ? (string)$res['error'] : '';
+		return $this->json(array('error' => $this->language->get(isset($map[$code]) ? $map[$code] : 'error_license_generic') . ($code !== '' && !isset($map[$code]) ? ' (' . $code . ')' : '')));
+	}
+
+	private function json(array $json) {
+		$this->response->addHeader('Content-Type: application/json');
+		$this->response->setOutput(json_encode($json));
 	}
 
 	// -------------------------------------------------------------------- tools

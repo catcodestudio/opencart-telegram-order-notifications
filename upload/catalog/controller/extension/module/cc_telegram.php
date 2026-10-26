@@ -17,11 +17,15 @@ require_once DIR_SYSTEM . 'library/cc_telegram.php';
 class ControllerExtensionModuleCcTelegram extends Controller {
 
 	/**
-	 * order_id => previous order_status_id, captured in the `before` pass.
+	 * order_id => stack of previous order_status_id values, one per
+	 * addOrderHistory() call in progress, captured in the `before` pass.
 	 * Static so it survives across the two controller instantiations the event
-	 * system creates within one request.
+	 * system creates within one request. A stack, not one slot: an
+	 * addOrderHistory() made from another extension's `after` handler would
+	 * otherwise overwrite the outer call's snapshot, and the real change of
+	 * status would then look like "Shipped -> Shipped" and be skipped.
 	 *
-	 * @var array<int,int>
+	 * @var array<int,int[]>
 	 */
 	public static $previous = array();
 
@@ -30,14 +34,16 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 	 * @param array  $args   addOrderHistory($order_id, $order_status_id, $comment, $notify, $override)
 	 */
 	public function eventOrderHistoryBefore($route, &$args) {
-		if (!$this->enabled() || !isset($args[0])) {
+		// The snapshot is needed by the customer Viber / SMS too, which runs even
+		// when the Telegram side is switched off.
+		if (!isset($args[0])) {
 			return;
 		}
 
 		$order_id = (int)$args[0];
 		$row      = $this->db->query("SELECT `order_status_id` FROM `" . DB_PREFIX . "order` WHERE `order_id` = '" . $order_id . "' LIMIT 1")->row;
 
-		self::$previous[$order_id] = isset($row['order_status_id']) ? (int)$row['order_status_id'] : 0;
+		self::$previous[$order_id][] = isset($row['order_status_id']) ? (int)$row['order_status_id'] : 0;
 	}
 
 	/**
@@ -46,15 +52,27 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 	 * @param mixed  $output Model return value (unused).
 	 */
 	public function eventOrderHistoryAfter($route, &$args, &$output) {
-		if (!$this->enabled() || !isset($args[0])) {
+		if (!isset($args[0])) {
 			return;
 		}
 
 		$order_id  = (int)$args[0];
 		$new_id    = isset($args[1]) ? (int)$args[1] : 0;
-		$old_id    = isset(self::$previous[$order_id]) ? (int)self::$previous[$order_id] : 0;
+		$old_id    = 0;
+		if (!empty(self::$previous[$order_id])) {
+			$old_id = (int)array_pop(self::$previous[$order_id]);
+			if (!self::$previous[$order_id]) {
+				unset(self::$previous[$order_id]);
+			}
+		}
 
 		if ($order_id <= 0 || $new_id <= 0) {
+			return;
+		}
+
+		$this->customerMessage($order_id, $new_id, $old_id, isset($args[2]) ? (string)$args[2] : '');
+
+		if (!$this->enabled()) {
 			return;
 		}
 
@@ -78,6 +96,95 @@ class ControllerExtensionModuleCcTelegram extends Controller {
 	}
 
 	// ------------------------------------------------------------------ events
+
+	/**
+	 * Pro: Viber / SMS to the customer for the status that just landed. Runs
+	 * whether or not the Telegram alerts are on, and never lets an exception out —
+	 * a gateway hiccup must not break checkout or an admin status change.
+	 */
+	private function customerMessage($order_id, $new_id, $old_id, $comment) {
+		if ((int)$old_id === (int)$new_id) {
+			return;
+		}
+		try {
+			require_once DIR_SYSTEM . 'library/cc_telegram_sms.php';
+
+			$sms = new CcTelegramSmsNotifier($this->registry);
+			if (!$sms->isActive()) {
+				return;
+			}
+
+			$this->load->language('extension/module/cc_telegram');
+			$this->load->model('checkout/order');
+			$order = $this->model_checkout_order->getOrder($order_id);
+			if (!$order) {
+				return;
+			}
+
+			$controller = $this;
+			$sms->handle(
+				$order,
+				(int)$new_id,
+				(int)$old_id,
+				$comment,
+				function (array $order, $template, array $extra) use ($controller) {
+					return $controller->customerText($order, $template, $extra);
+				},
+				function ($id) use ($controller) {
+					return $controller->publicStatusName($id);
+				}
+			);
+		} catch (\Throwable $e) {
+			$this->log->write('CatCode Telegram / SMS: ' . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Plain-text customer message: nothing escaped, no admin link, items as
+	 * "Name × 2". Public only for the closure above.
+	 */
+	public function customerText(array $order, $template, array $extra) {
+		$values = $this->orderValues($order, 0);
+		unset($values['admin_url']);
+
+		$lines = array();
+		foreach ($this->db->query("SELECT `name`, `quantity` FROM `" . DB_PREFIX . "order_product` WHERE `order_id` = '" . (int)$order['order_id'] . "'")->rows as $item) {
+			$lines[] = $item['name'] . ' × ' . (int)$item['quantity'];
+		}
+		$values['items'] = implode("\n", $lines);
+		$values = array_merge($values, $extra);
+
+		$out = array();
+		foreach (explode("\n", str_replace("\r\n", "\n", html_entity_decode((string)$template, ENT_QUOTES, 'UTF-8'))) as $line) {
+			if (!preg_match_all('/\{([a-z0-9_]+)\}/', $line, $m)) {
+				$out[] = $line;
+				continue;
+			}
+			$known = 0;
+			$empty = 0;
+			foreach ($m[1] as $key) {
+				if (!array_key_exists($key, $values)) {
+					continue;
+				}
+				++$known;
+				$value = trim((string)$values[$key]);
+				if ($value === '') {
+					++$empty;
+				}
+				$line = str_replace('{' . $key . '}', $value, $line);
+			}
+			if ($known > 0 && $known === $empty) {
+				continue;
+			}
+			$out[] = $line;
+		}
+
+		return trim((string)preg_replace("/\n{3,}/", "\n\n", implode("\n", $out)));
+	}
+
+	public function publicStatusName($status_id) {
+		return $this->statusName($status_id);
+	}
 
 	/**
 	 * Announce a new order once, when it first reaches a configured status.
